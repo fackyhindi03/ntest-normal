@@ -152,6 +152,7 @@ def episode_callback(update: Update, context: CallbackContext):
     query = update.callback_query
     query.answer()
     chat_id = query.message.chat.id
+    original_msg_id = query.message.message_id
 
     try:
         idx = int(query.data.split(":", 1)[1])
@@ -160,11 +161,11 @@ def episode_callback(update: Update, context: CallbackContext):
         query.edit_message_text("❌ Invalid episode selection.")
         return
 
-    # 1) Send details block and store its message ID
+    # 1) Send details block
     anime_title = context.user_data.get('anime_title', 'Unknown')
     header = "🔰 *Details Of Anime* 🔰"
     details = f"🎬 *Name:* {anime_title}\n🔢 *Episode:* {ep_num}"
-    details_msg = query.message.reply_text(
+    update.effective_chat.send_message(
         f"{header}\n\n{details}",
         parse_mode="MarkdownV2"
     )
@@ -174,19 +175,19 @@ def episode_callback(update: Update, context: CallbackContext):
         hls_link, sub_url = extract_episode_stream_and_subtitle(ep_id)
     except Exception:
         logger.exception("Stream extract error")
-        query.message.reply_text(f"❌ Could not extract Episode {ep_num}.")
-        context.bot.delete_message(chat_id, details_msg.message_id)
+        update.effective_chat.send_message(f"❌ Could not extract Episode {ep_num}.")
+        context.bot.delete_message(chat_id, original_msg_id)
         return
 
     if not hls_link:
-        query.message.reply_text(f"😔 No SUB HD-2 stream for Episode {ep_num}.")
-        context.bot.delete_message(chat_id, details_msg.message_id)
+        update.effective_chat.send_message(f"😔 No SUB HD-2 stream for Episode {ep_num}.")
+        context.bot.delete_message(chat_id, original_msg_id)
         return
 
     text = f"🎬 Episode {ep_num}\n\nVideo (SUB HD-2):\n{hls_link}\n"
     if not sub_url:
-        query.message.reply_text(text + "\n❗ No English subtitles found.")
-        context.bot.delete_message(chat_id, details_msg.message_id)
+        update.effective_chat.send_message(text + "\n❗ No English subtitles found.")
+        context.bot.delete_message(chat_id, original_msg_id)
         return
 
     try:
@@ -197,11 +198,11 @@ def episode_callback(update: Update, context: CallbackContext):
     except Exception:
         logger.exception("Subtitle download error")
         text += "\n⚠️ Failed to download subtitle."
-        query.message.reply_text(text)
-        context.bot.delete_message(chat_id, details_msg.message_id)
+        update.effective_chat.send_message(text)
+        context.bot.delete_message(chat_id, original_msg_id)
         return
 
-    query.message.reply_text(text)
+    update.effective_chat.send_message(text)
     with open(local_vtt, "rb") as f:
         context.bot.send_document(
             chat_id=chat_id,
@@ -210,8 +211,8 @@ def episode_callback(update: Update, context: CallbackContext):
         )
     os.remove(local_vtt)
 
-    # delete details message after completion
-    context.bot.delete_message(chat_id, details_msg.message_id)
+    # Delete the episode list message
+    context.bot.delete_message(chat_id, original_msg_id)
 
 # —─────────────────────────────────────────────────────────────────────────────
 # 7b) Download All callback
@@ -220,6 +221,7 @@ def episodes_all_callback(update: Update, context: CallbackContext):
     query = update.callback_query
     query.answer()
     chat_id = query.message.chat.id
+    original_msg_id = query.message.message_id
     eps = episode_cache.get(chat_id, [])
 
     if not eps:
@@ -230,7 +232,7 @@ def episodes_all_callback(update: Update, context: CallbackContext):
     anime_title = context.user_data.get('anime_title', 'Unknown')
     header = "🔰 *Details Of Anime* 🔰"
     details = f"🎬 *Name:* {anime_title}\n🔢 *Episode:* All"
-    details_msg = query.message.reply_text(
+    update.effective_chat.send_message(
         f"{header}\n\n{details}",
         parse_mode="MarkdownV2"
     )
@@ -274,8 +276,8 @@ def episodes_all_callback(update: Update, context: CallbackContext):
             )
         os.remove(local_vtt)
 
-    # delete details message after bulk completion
-    context.bot.delete_message(chat_id, details_msg.message_id)
+    # Delete the episode list message after bulk
+    context.bot.delete_message(chat_id, original_msg_id)
 
 # —─────────────────────────────────────────────────────────────────────────────
 # 8) Error handler
