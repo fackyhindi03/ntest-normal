@@ -49,7 +49,7 @@ hianimez_scraper.ANIWATCH_API_BASE = ANIWATCH_API_BASE
 # 2) Authorization decorator
 # ——————————————————————————————————————————————————————————————
 # Replace with your allowed Telegram user IDs
-AUTHORIZED_USERS = {123456789, 987654321}
+AUTHORIZED_USERS = {1423807625,5476335536,2096201372,633599652}
 
 def restricted(func):
     @wraps(func)
