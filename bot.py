@@ -6,7 +6,6 @@ load_dotenv()
 
 import os
 import logging
-
 from telegram import (
     Update,
     InlineKeyboardButton,
@@ -26,7 +25,10 @@ from hianimez_scraper import (
     get_episodes_list,
     extract_episode_stream_and_subtitle,
 )
-from utils import download_and_rename_subtitle
+from utils import (
+    download_and_rename_video,
+    download_and_rename_subtitle,
+)
 
 # ——————————————————————————————————————————————————————————————
 # 1) Load & validate environment
@@ -55,7 +57,7 @@ updater = Updater(TELEGRAM_TOKEN, use_context=True)
 dispatcher = updater.dispatcher
 
 # ——————————————————————————————————————————————————————————————
-# 3) In-memory caches per chat
+# 3) In‐memory caches per chat
 # ——————————————————————————————————————————————————————————————
 search_cache = {}    # chat_id → [ (title, slug), … ]
 episode_cache = {}   # chat_id → [ (ep_num, episode_id), … ]
@@ -66,7 +68,7 @@ episode_cache = {}   # chat_id → [ (ep_num, episode_id), … ]
 def start(update: Update, context: CallbackContext):
     update.message.reply_text(
         "👋 Hello! Use `/search <anime name>` to look up shows on hianimez.\n"
-        "Then pick an episode and I’ll send you a link labeled <Anime> E<Num>.",
+        "Then tap a button to pick an episode or Download All.",
         parse_mode="MarkdownV2"
     )
 
@@ -100,7 +102,8 @@ def search_command(update: Update, context: CallbackContext):
         [InlineKeyboardButton(title, callback_data=f"anime_idx:{i}")]
         for i, (title, _) in enumerate(search_cache[chat_id])
     ]
-    msg.edit_text("Select the anime:", reply_markup=InlineKeyboardMarkup(buttons))
+    reply_markup = InlineKeyboardMarkup(buttons)
+    msg.edit_text("Select the anime:", reply_markup=reply_markup)
 
 # ——————————————————————————————————————————————————————————————
 # 6) anime_idx callback
@@ -163,41 +166,52 @@ def episode_callback(update: Update, context: CallbackContext):
 
     anime_title = context.user_data.get('anime_title', 'Unknown')
 
-    # 1) Send details block in HTML
-    context.bot.send_message(
-        chat_id=chat_id,
-        text=(
-            "🔰 <b>Details Of Anime</b> 🔰\n\n"
-            f"🎬 <b>Name:</b> {anime_title}\n"
-            f"🔢 <b>Episode:</b> {ep_num}"
-        ),
-        parse_mode="HTML"
+    # 1) Send details block
+    header = "🔰 *Details Of Anime* 🔰"
+    details = f"🎬 *Name:* {anime_title}\n🔢 *Episode:* {ep_num}"
+    details_msg = query.message.reply_text(
+        f"{header}\n\n{details}",
+        parse_mode="MarkdownV2"
     )
 
-    # 2) **send hyperlink instead of .strm**
-    stream_url, sub_url = extract_episode_stream_and_subtitle(ep_id)
-    context.bot.send_message(
-        chat_id=chat_id,
-        text=f"<a href=\"{stream_url}\">{anime_title} E{ep_num}</a>",
-        parse_mode="HTML"
-    )
+    # 2) Download video
+    try:
+        video_path = download_and_rename_video(
+            extract_episode_stream_and_subtitle(ep_id)[0],
+            anime_title, ep_num,
+            cache_dir="video_cache"
+        )
+        with open(video_path, "rb") as vf:
+            context.bot.send_video(
+                chat_id=chat_id,
+                video=InputFile(vf, filename=os.path.basename(video_path)),
+                supports_streaming=True
+            )
+        os.remove(video_path)
+    except Exception:
+        logger.exception("Video download error")
+        context.bot.send_message(chat_id, f"⚠️ Failed to download video for Episode {ep_num}.")
+        context.bot.delete_message(chat_id, original_msg_id)
+        return
 
-    # 3) Download & send subtitle if available
-    if sub_url:
-        try:
-            local_vtt = download_and_rename_subtitle(sub_url, ep_num, cache_dir="subtitles_cache")
-            with open(local_vtt, "rb") as f:
-                context.bot.send_document(
-                    chat_id=chat_id,
-                    document=InputFile(f, filename=os.path.basename(local_vtt)),
-                    caption=f"Subtitle for Episode {ep_num}"
-                )
-            os.remove(local_vtt)
-        except Exception:
-            logger.exception("Subtitle download error")
-            context.bot.send_message(chat_id, f"⚠️ Failed to download subtitle for Episode {ep_num}.")
+    # 3) Download subtitle
+    try:
+        sub_url = extract_episode_stream_and_subtitle(ep_id)[1]
+        local_vtt = download_and_rename_subtitle(
+            sub_url, ep_num, cache_dir="subtitles_cache"
+        )
+        with open(local_vtt, "rb") as f:
+            context.bot.send_document(
+                chat_id=chat_id,
+                document=InputFile(f, filename=os.path.basename(local_vtt)),
+                caption=f"Subtitle for Episode {ep_num}"
+            )
+        os.remove(local_vtt)
+    except Exception:
+        logger.exception("Subtitle download error")
+        context.bot.send_message(chat_id, f"⚠️ Failed to download subtitle for Episode {ep_num}.")
 
-    # Delete the episode-listing message
+    # Delete the episode list message
     context.bot.delete_message(chat_id, original_msg_id)
 
 # —─────────────────────────────────────────────────────────────────────────────
@@ -215,49 +229,51 @@ def episodes_all_callback(update: Update, context: CallbackContext):
         return
 
     anime_title = context.user_data.get('anime_title', 'Unknown')
-
-    # Details block for all
-    context.bot.send_message(
-        chat_id=chat_id,
-        text=(
-            "🔰 <b>Details Of Anime</b> 🔰\n\n"
-            f"🎬 <b>Name:</b> {anime_title}\n"
-            "🔢 <b>Episode:</b> All"
-        ),
-        parse_mode="HTML"
+    header = "🔰 *Details Of Anime* 🔰"
+    details = f"🎬 *Name:* {anime_title}\n🔢 *Episode:* All"
+    details_msg = query.message.reply_text(
+        f"{header}\n\n{details}",
+        parse_mode="MarkdownV2"
     )
 
-    # 2) **send links instead of .strm**
+    query.edit_message_text(
+        "🔄 Downloading all episodes… this may take some time."
+    )
     for ep_num, ep_id in eps:
         try:
-            stream_url, sub_url = extract_episode_stream_and_subtitle(ep_id)
+            hls_link, sub_url = extract_episode_stream_and_subtitle(ep_id)
+            video_path = download_and_rename_video(
+                hls_link, anime_title, ep_num,
+                cache_dir="video_cache"
+            )
+            with open(video_path, "rb") as vf:
+                context.bot.send_video(
+                    chat_id=chat_id,
+                    video=InputFile(vf, filename=os.path.basename(video_path)),
+                    supports_streaming=True
+                )
+            os.remove(video_path)
         except Exception:
-            logger.exception("Bulk extract error")
-            context.bot.send_message(chat_id, f"❌ Ep {ep_num} failed. Skipping.")
+            logger.exception("Bulk video download error")
+            context.bot.send_message(chat_id, f"⚠️ Failed to download video Ep {ep_num}.")
             continue
 
-        context.bot.send_message(
-            chat_id=chat_id,
-            text=f"<a href=\"{stream_url}\">{anime_title} E{ep_num}</a>",
-            parse_mode="HTML"
-        )
+        try:
+            local_vtt = download_and_rename_subtitle(
+                sub_url, ep_num, cache_dir="subtitles_cache"
+            )
+            with open(local_vtt, "rb") as f:
+                context.bot.send_document(
+                    chat_id=chat_id,
+                    document=InputFile(f, filename=os.path.basename(local_vtt)),
+                    caption=f"Subtitle for Episode {ep_num}"
+                )
+            os.remove(local_vtt)
+        except Exception:
+            logger.exception("Bulk subtitle error")
+            context.bot.send_message(chat_id, f"⚠️ Failed to download subtitle Ep {ep_num}.")
 
-        # subtitle
-        if sub_url:
-            try:
-                local_vtt = download_and_rename_subtitle(sub_url, ep_num, cache_dir="subtitles_cache")
-                with open(local_vtt, "rb") as f:
-                    context.bot.send_document(
-                        chat_id=chat_id,
-                        document=InputFile(f, filename=os.path.basename(local_vtt)),
-                        caption=f"Subtitle for Episode {ep_num}"
-                    )
-                os.remove(local_vtt)
-            except Exception:
-                logger.exception("Bulk subtitle error")
-                context.bot.send_message(chat_id, f"⚠️ Failed to download subtitle Ep {ep_num}.")
-
-    # Delete the episode-listing message
+    # Delete the episode list message after bulk
     context.bot.delete_message(chat_id, original_msg_id)
 
 # —─────────────────────────────────────────────────────────────────────────────
@@ -273,7 +289,7 @@ def error_handler(update: object, context: CallbackContext):
 # —─────────────────────────────────────────────────────────────────────────────
 dispatcher.add_handler(CommandHandler("start", start))
 dispatcher.add_handler(CommandHandler("search", search_command))
-dispatcher.add_handler(CallbackQueryHandler(anime_callback, pattern=r"^anime_idx:"))
+dispatcher.add_handler(CallbackQueryHandler(anime_callback,   pattern=r"^anime_idx:"))
 dispatcher.add_handler(CallbackQueryHandler(episode_callback, pattern=r"^episode_idx:"))
 dispatcher.add_handler(CallbackQueryHandler(episodes_all_callback, pattern=r"^episode_all$"))
 dispatcher.add_error_handler(error_handler)
