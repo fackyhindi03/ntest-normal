@@ -79,7 +79,6 @@ def start(update: Update, context: CallbackContext):
         "2️⃣ Select the anime from the list of results\n"
         "3️⃣ Choose an episode to get link\\(or tap \\\"Download All\\\"\\)\n"
         "4️⃣ Receive the high\\-quality download link \\+ subtitles automatically\n\n"
-        "☑️ Send `/cancel` at any time to abort an ongoing download\n\n"
         "📩 *Contact @THe\\_vK\\_3 if any problem or Query* ",
         parse_mode="MarkdownV2"
     )
