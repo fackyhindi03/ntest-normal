@@ -67,8 +67,20 @@ episode_cache = {}   # chat_id → [ (ep_num, episode_id), … ]
 # ——————————————————————————————————————————————————————————————
 def start(update: Update, context: CallbackContext):
     update.message.reply_text(
-        "👋 Hello! Use `/search <anime name>` to look up shows on hianimez.\n"
-        "Then tap a button to pick an episode or Download All.",
+        "🌸 *Hianime Downloader* 🌸\n\n"
+        "🔍 *Find \\& Download Anime Episodes Directly*\n\n"
+        "🎯 *What I Can Do:*\n"
+        "• Search for your favorite anime on [hianimez\\.to](https://hianimez\\.to)\n"
+        "• Give that direct m3u8 link\n"
+        "• Include English subtitles \\(SRT/VTT\\)\n"
+        "• Send everything as a document \\(no quality loss\\)\n\n"
+        "📝 *How to Use:*\n"
+        "1️⃣ `/search <anime name>` \\- Find anime titles\n"
+        "2️⃣ Select the anime from the list of results\n"
+        "3️⃣ Choose an episode to get link\\(or tap \\\"Download All\\\"\\)\n"
+        "4️⃣ Receive the high\\-quality download link \\+ subtitles automatically\n\n"
+        "☑️ Send `/cancel` at any time to abort an ongoing download\n\n"
+        "📩 *Contact @THe\\_vK\\_3 if any problem or Query* ",
         parse_mode="MarkdownV2"
     )
 
