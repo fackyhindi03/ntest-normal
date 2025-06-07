@@ -38,7 +38,7 @@ ANIWATCH_API_BASE = os.getenv("ANIWATCH_API_BASE")
 if not ANIWATCH_API_BASE:
     raise RuntimeError("ANIWATCH_API_BASE environment variable is not set")
 
-# Inject your base URL into the scraper module so its functions use it:
+# Inject base URL into the scraper
 hianimez_scraper.ANIWATCH_API_BASE = ANIWATCH_API_BASE
 
 # ——————————————————————————————————————————————————————————————
@@ -65,7 +65,8 @@ episode_cache = {}   # chat_id → [ (ep_num, episode_id), … ]
 def start(update: Update, context: CallbackContext):
     update.message.reply_text(
         "👋 Hello! Use `/search <anime name>` to look up shows on hianimez.\n"
-        "Then tap a button to pick an episode or Download All."
+        "Then tap a button to pick an episode or Download All.",
+        parse_mode="MarkdownV2"
     )
 
 # ——————————————————————————————————————————————————————————————
@@ -73,15 +74,16 @@ def start(update: Update, context: CallbackContext):
 # ——————————————————————————————————————————————————————————————
 def search_command(update: Update, context: CallbackContext):
     if not context.args:
-        update.message.reply_text("Usage: `/search Naruto`", parse_mode="Markdown")
+        update.message.reply_text("Usage: `/search Naruto`", parse_mode="MarkdownV2")
         return
 
     chat_id = update.effective_chat.id
     query = " ".join(context.args).strip()
-    msg = update.message.reply_text(f"🔍 Searching for *{query}*…", parse_mode="Markdown")
+    msg = update.message.reply_text(
+        f"🔍 Searching for *{query}*…", parse_mode="MarkdownV2"
+    )
 
     try:
-        # now uses ANIWATCH_API_BASE internally
         results = search_anime(query)
     except Exception:
         logger.exception("Search error")
@@ -89,12 +91,10 @@ def search_command(update: Update, context: CallbackContext):
         return
 
     if not results:
-        msg.edit_text(f"No results for *{query}*.", parse_mode="Markdown")
+        msg.edit_text(f"No results for *{query}*.", parse_mode="MarkdownV2")
         return
 
-    # Cache [(title, slug), …]
     search_cache[chat_id] = [(title, slug) for title, _, slug in results]
-
     buttons = [
         [InlineKeyboardButton(title, callback_data=f"anime_idx:{i}")]
         for i, (title, _) in enumerate(search_cache[chat_id])
@@ -117,10 +117,15 @@ def anime_callback(update: Update, context: CallbackContext):
         query.edit_message_text("❌ Invalid selection.")
         return
 
-    query.edit_message_text(f"🔍 Fetching episodes for *{title}*…", parse_mode="Markdown")
+    # Save title for later
+    context.user_data['anime_title'] = title
+
+    query.edit_message_text(
+        f"🔍 Fetching episodes for *{title}*…", parse_mode="MarkdownV2"
+    )
 
     try:
-        episodes = get_episodes_list(f"{hianimez_scraper.ANIWATCH_API_BASE}/watch/{slug}")
+        episodes = get_episodes_list(f"{ANIWATCH_API_BASE}/watch/{slug}")
     except Exception:
         logger.exception("Episode fetch error")
         query.edit_message_text("❌ Could not fetch episodes.")
@@ -130,9 +135,7 @@ def anime_callback(update: Update, context: CallbackContext):
         query.edit_message_text("No episodes found.")
         return
 
-    # Cache [(ep_num, ep_id), …]
     episode_cache[chat_id] = episodes
-
     buttons = [
         [InlineKeyboardButton(f"Episode {ep_num}", callback_data=f"episode_idx:{i}")]
         for i, (ep_num, _) in enumerate(episodes)
@@ -141,12 +144,12 @@ def anime_callback(update: Update, context: CallbackContext):
 
     query.edit_message_text(
         "Select an episode (or Download All):",
-        reply_markup=InlineKeyboardMarkup(buttons),
+        reply_markup=InlineKeyboardMarkup(buttons)
     )
 
-# ——————————————————————————————————————————————————————————————
+# —─────────────────────────────────────────────────────────────────────────────
 # 7a) episode_idx callback
-# ——————————————————————————————————————————————————————————————
+# —─────────────────────────────────────────────────────────────────────────────
 def episode_callback(update: Update, context: CallbackContext):
     query = update.callback_query
     query.answer()
@@ -159,16 +162,30 @@ def episode_callback(update: Update, context: CallbackContext):
         query.edit_message_text("❌ Invalid episode selection.")
         return
 
-    query.edit_message_text(f"🔄 Preparing Episode {ep_num}…")
+    # 1) Details block
+    anime_title = context.user_data.get('anime_title', 'Unknown')
+    header = "🔰 *Details Of Anime* 🔰\n\n"
+    details = f"🎬 *Name:* {anime_title}\n🔢 *Episode:* {ep_num}"
+    query.message.reply_text(
+        f"{header}\n\n{details}",
+        parse_mode="MarkdownV2"
+    )
+
+    # 2) Download logic
+    query.message.reply_text(f"🔄 Preparing Episode {ep_num}…")
     try:
         hls_link, sub_url = extract_episode_stream_and_subtitle(ep_id)
     except Exception:
         logger.exception("Stream extract error")
-        query.edit_message_text(f"❌ Could not extract Episode {ep_num}.")
+        query.message.reply_text(
+            f"❌ Could not extract Episode {ep_num}."
+        )
         return
 
     if not hls_link:
-        query.edit_message_text(f"😔 No SUB HD-2 stream for Episode {ep_num}.")
+        query.message.reply_text(
+            f"😔 No SUB HD-2 stream for Episode {ep_num}."
+        )
         return
 
     text = f"🎬 Episode {ep_num}\n\nVideo (SUB HD-2):\n{hls_link}\n"
@@ -176,7 +193,6 @@ def episode_callback(update: Update, context: CallbackContext):
         query.message.reply_text(text + "\n❗ No English subtitles found.")
         return
 
-    # download subtitle
     try:
         local_vtt = download_and_rename_subtitle(
             sub_url, ep_num, cache_dir="subtitles_cache"
@@ -197,9 +213,9 @@ def episode_callback(update: Update, context: CallbackContext):
         )
     os.remove(local_vtt)
 
-# ——————————————————————————————————————————————————————————————
+# —─────────────────────────────────────────────────────────────────────────────
 # 7b) Download All callback
-# ——————————————————————————————————————————————————————————————
+# —─────────────────────────────────────────────────────────────────────────────
 def episodes_all_callback(update: Update, context: CallbackContext):
     query = update.callback_query
     query.answer()
@@ -210,7 +226,18 @@ def episodes_all_callback(update: Update, context: CallbackContext):
         query.edit_message_text("❌ Nothing to download.")
         return
 
-    query.edit_message_text("🔄 Downloading all episodes… this may take some time.")
+    # Details block for all
+    anime_title = context.user_data.get('anime_title', 'Unknown')
+    header = "🔰 *Details Of Anime* 🔰\n"
+    details = f"🎬 *Name:* {anime_title}\n🔢 *Episode:* All"
+    query.message.reply_text(
+        f"{header}\n\n{details}",
+        parse_mode="MarkdownV2"
+    )
+
+    query.edit_message_text(
+        "🔄 Downloading all episodes… this may take some time."
+    )
     for ep_num, ep_id in eps:
         try:
             hls_link, sub_url = extract_episode_stream_and_subtitle(ep_id)
@@ -228,7 +255,6 @@ def episodes_all_callback(update: Update, context: CallbackContext):
             context.bot.send_message(chat_id, text + "\n❗ No subtitles.")
             continue
 
-        # download subtitle
         try:
             local_vtt = download_and_rename_subtitle(
                 sub_url, ep_num, cache_dir="subtitles_cache"
@@ -248,23 +274,22 @@ def episodes_all_callback(update: Update, context: CallbackContext):
             )
         os.remove(local_vtt)
 
-# ——————————————————————————————————————————————————————————————
+# —─────────────────────────────────────────────────────────────────────────────
 # 8) Error handler
-# ——————————————————————————————————————————————————————————————
+# —─────────────────────────────────────────────────────────────────────────────
 def error_handler(update: object, context: CallbackContext):
     logger.error("Update caused error", exc_info=context.error)
     if isinstance(update, Update) and update.callback_query:
         update.callback_query.message.reply_text("⚠️ Oops, something went wrong.")
 
-# ——————————————————————————————————————————————————————————————
+# —─────────────────────────────────────────────────────────────────────────────
 # 9) Register handlers & start polling
-# ——————————————————————————————————————————————————————————————
+# —─────────────────────────────────────────────────────────────────────────────
 dispatcher.add_handler(CommandHandler("start", start))
 dispatcher.add_handler(CommandHandler("search", search_command))
 dispatcher.add_handler(CallbackQueryHandler(anime_callback,   pattern=r"^anime_idx:"))
 dispatcher.add_handler(CallbackQueryHandler(episode_callback, pattern=r"^episode_idx:"))
-dispatcher.add_handler(CallbackQueryHandler(episodes_all_callback,
-                                           pattern=r"^episode_all$"))
+dispatcher.add_handler(CallbackQueryHandler(episodes_all_callback, pattern=r"^episode_all$"))
 dispatcher.add_error_handler(error_handler)
 
 if __name__ == "__main__":
