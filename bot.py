@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # bot.py
-
+from dotenv import load_dotenv
 import os
 import logging
 from flask import Flask, request
