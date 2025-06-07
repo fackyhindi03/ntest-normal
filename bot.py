@@ -11,8 +11,12 @@ from telegram import (
     InlineKeyboardMarkup,
     InputFile,
 )
-import CommandHandler, CallbackQueryHandler, CallbackContext
-from telegram.ext import Updater
+from telegram.ext import (
+    Updater,
+    CommandHandler,
+    CallbackQueryHandler,
+    CallbackContext,
+)
 
 from hianimez_scraper import (
     search_anime,
@@ -28,12 +32,6 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 if not TELEGRAM_TOKEN:
     raise RuntimeError("TELEGRAM_TOKEN environment variable is not set")
 
-KOYEB_APP_URL = os.getenv("KOYEB_APP_URL")
-if not KOYEB_APP_URL:
-    raise RuntimeError(
-        "KOYEB_APP_URL environment variable is not set. It must be your bot’s public HTTPS URL (no trailing slash)."
-    )
-
 ANIWATCH_API_BASE = os.getenv("ANIWATCH_API_BASE")
 if not ANIWATCH_API_BASE:
     raise RuntimeError(
@@ -43,7 +41,7 @@ if not ANIWATCH_API_BASE:
 # ——————————————————————————————————————————————————————————————
 # 2) Initialize Bot + Dispatcher
 # ——————————————————————————————————————————————————————————————
-updater = Updater(TOKEN, use_context=True)
+updater = Updater(TELEGRAM_TOKEN, use_context=True)
 dispatcher = updater.dispatcher
 
 logging.basicConfig(
@@ -344,4 +342,6 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    logger.info("🔄 Starting long-polling…")
+    updater.start_polling()
+    updater.idle()
