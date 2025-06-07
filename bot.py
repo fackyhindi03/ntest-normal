@@ -149,7 +149,11 @@ def search_command(update: Update, context: CallbackContext):
 @restricted
 def anime_callback(update: Update, context: CallbackContext):
     query = update.callback_query
-    query.answer()
+    try:
+        query.answer()
+    except BadRequest:
+        # either already answered or too late—ignore
+        pass
     chat_id = query.message.chat.id
 
     try:
@@ -193,7 +197,11 @@ def anime_callback(update: Update, context: CallbackContext):
 @restricted
 def episode_callback(update: Update, context: CallbackContext):
     query = update.callback_query
-    query.answer()
+    try:
+        query.answer()
+    except BadRequest:
+        # either already answered or too late—ignore.
+        pass
     chat_id = query.message.chat.id
     original_msg_id = query.message.message_id
 
@@ -262,7 +270,11 @@ def episode_callback(update: Update, context: CallbackContext):
 @restricted
 def episodes_all_callback(update: Update, context: CallbackContext):
     query = update.callback_query
-    query.answer()
+    try:
+        query.answer()
+    except BadRequest:
+        # either already answered or too late—ignore
+        pass
     chat_id = query.message.chat.id
     original_msg_id = query.message.message_id
     eps = episode_cache.get(chat_id, [])
