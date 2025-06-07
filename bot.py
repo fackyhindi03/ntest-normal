@@ -70,7 +70,7 @@ def start(update: Update, context: CallbackContext):
         "🌸 *Hianime Downloader* 🌸\n\n"
         "🔍 *Find \\& Download Anime Episodes Directly*\n\n"
         "🎯 *What I Can Do:*\n"
-        "• Search for your favorite anime on [hianimez\\.to](https://hianimez\\.to)\n"
+        "• Search for your favorite anime on hianimez\\.to\n"
         "• Give that direct m3u8 link\n"
         "• Include English subtitles \\(SRT/VTT\\)\n"
         "• Send everything as a document \\(no quality loss\\)\n\n"
