@@ -64,6 +64,7 @@ def restricted(func):
                     "📩 Contact @THe_vK_3 for access!"
                 ),
                 parse_mode="HTML"
+            )
             return
         return func(update, context, *args, **kwargs)
     return wrapped
