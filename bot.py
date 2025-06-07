@@ -164,7 +164,7 @@ def episode_callback(update: Update, context: CallbackContext):
 
     # 1) Details block
     anime_title = context.user_data.get('anime_title', 'Unknown')
-    header = "🔰 *Details Of Anime* 🔰\n\n"
+    header = "🔰 *Details Of Anime* 🔰"
     details = f"🎬 *Name:* {anime_title}\n🔢 *Episode:* {ep_num}"
     query.message.reply_text(
         f"{header}\n\n{details}",
@@ -172,7 +172,7 @@ def episode_callback(update: Update, context: CallbackContext):
     )
 
     # 2) Download logic
-    query.message.reply_text(f"🔄 Preparing Episode {ep_num}…")
+    query.message.reply_text()
     try:
         hls_link, sub_url = extract_episode_stream_and_subtitle(ep_id)
     except Exception:
@@ -228,16 +228,14 @@ def episodes_all_callback(update: Update, context: CallbackContext):
 
     # Details block for all
     anime_title = context.user_data.get('anime_title', 'Unknown')
-    header = "🔰 *Details Of Anime* 🔰\n"
+    header = "🔰 *Details Of Anime* 🔰"
     details = f"🎬 *Name:* {anime_title}\n🔢 *Episode:* All"
     query.message.reply_text(
         f"{header}\n\n{details}",
         parse_mode="MarkdownV2"
     )
 
-    query.edit_message_text(
-        "🔄 Downloading all episodes… this may take some time."
-    )
+    query.edit_message_text()
     for ep_num, ep_id in eps:
         try:
             hls_link, sub_url = extract_episode_stream_and_subtitle(ep_id)
