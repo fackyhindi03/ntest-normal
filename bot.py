@@ -5,15 +5,14 @@ load_dotenv()
 
 import os
 import logging
-from flask import Flask, request
 from telegram import (
-    Bot,
     Update,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     InputFile,
 )
-from telegram.ext import Dispatcher, CommandHandler, CallbackQueryHandler, CallbackContext
+import CommandHandler, CallbackQueryHandler, CallbackContext
+from telegram.ext import Updater
 
 from hianimez_scraper import (
     search_anime,
@@ -44,8 +43,8 @@ if not ANIWATCH_API_BASE:
 # ——————————————————————————————————————————————————————————————
 # 2) Initialize Bot + Dispatcher
 # ——————————————————————————————————————————————————————————————
-bot = Bot(token=TELEGRAM_TOKEN)
-dispatcher = Dispatcher(bot, None, workers=4, use_context=True)
+updater = Updater(TOKEN, use_context=True)
+dispatcher = updater.dispatcher
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
@@ -324,43 +323,25 @@ def error_handler(update: object, context: CallbackContext):
         update.callback_query.message.reply_text("⚠️ Oops, something went wrong.")
 
 
-dispatcher.add_handler(CommandHandler("start", start))
-dispatcher.add_handler(CommandHandler("search", search_command))
-dispatcher.add_handler(CallbackQueryHandler(anime_callback, pattern=r"^anime_idx:"))
-dispatcher.add_handler(CallbackQueryHandler(episode_callback, pattern=r"^episode_idx:"))
-dispatcher.add_handler(CallbackQueryHandler(episodes_all_callback, pattern=r"^episode_all$"))
-dispatcher.add_error_handler(error_handler)
 
 
 # ——————————————————————————————————————————————————————————————
 # 9) Flask app for webhook + health check
 # ——————————————————————————————————————————————————————————————
-app = Flask(__name__)
+def main():
+    # register all your existing handlers exactly as before
+    dispatcher.add_handler(CommandHandler("start", start))
+    dispatcher.add_handler(CommandHandler("search", search_command))
+    dispatcher.add_handler(CallbackQueryHandler(anime_callback,   pattern=r"^anime_idx:"))
+    dispatcher.add_handler(CallbackQueryHandler(episode_callback, pattern=r"^episode_idx:"))
+    dispatcher.add_handler(CallbackQueryHandler(episodes_all_callback,
+                                               pattern=r"^episode_all$"))
+    dispatcher.add_error_handler(error_handler)
 
-@app.route("/webhook", methods=["POST"])
-def webhook_handler():
-    data = request.get_json(force=True)
-    update = Update.de_json(data, bot)
-    dispatcher.process_update(update)
-    return "OK", 200
-
-@app.route("/", methods=["GET"])
-def health_check():
-    return "OK", 200
+    logger.info("🔄 Starting long-polling…")
+    updater.start_polling()
+    updater.idle()
 
 
-# ——————————————————————————————————————————————————————————————
-# 10) On startup, set Telegram webhook to <KOYEB_APP_URL>/webhook
-# ——————————————————————————————————————————————————————————————
 if __name__ == "__main__":
-    webhook_url = f"{KOYEB_APP_URL}/webhook"
-    try:
-        bot.set_webhook(webhook_url)
-        logger.info(f"Successfully set webhook to {webhook_url}")
-    except Exception as ex:
-        logger.error(f"Failed to set webhook: {ex}", exc_info=True)
-        raise
-
-    os.makedirs("subtitles_cache", exist_ok=True)
-    logger.info("Starting Flask server on port 8080…")
-    app.run(host="0.0.0.0", port=8080)
+    main()
