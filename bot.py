@@ -174,7 +174,7 @@ def episode_callback(update: Update, context: CallbackContext):
         parse_mode="HTML"
     )
 
-    # 2) *** REPLACED: send link instead of .strm ***
+    # 2) **send hyperlink instead of .strm**
     stream_url, sub_url = extract_episode_stream_and_subtitle(ep_id)
     context.bot.send_message(
         chat_id=chat_id,
@@ -227,7 +227,7 @@ def episodes_all_callback(update: Update, context: CallbackContext):
         parse_mode="HTML"
     )
 
-    # 2) *** REPLACED: send links instead of .strm ***
+    # 2) **send links instead of .strm**
     for ep_num, ep_id in eps:
         try:
             stream_url, sub_url = extract_episode_stream_and_subtitle(ep_id)
