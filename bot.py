@@ -6,6 +6,7 @@ load_dotenv()
 
 import os
 import logging
+from functools import wraps
 from telegram import (
     Update,
     InlineKeyboardButton,
@@ -45,7 +46,30 @@ if not ANIWATCH_API_BASE:
 hianimez_scraper.ANIWATCH_API_BASE = ANIWATCH_API_BASE
 
 # ——————————————————————————————————————————————————————————————
-# 2) Set up logging, Updater & Dispatcher
+# 2) Authorization decorator
+# ——————————————————————————————————————————————————————————————
+# Replace with your allowed Telegram user IDs
+AUTHORIZED_USERS = {123456789, 987654321}
+
+def restricted(func):
+    @wraps(func)
+    def wrapped(update: Update, context: CallbackContext, *args, **kwargs):
+        user_id = update.effective_user.id
+        if user_id not in AUTHORIZED_USERS:
+            context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text=(
+                    "🚫 <b>Access Denied!</b>\n"
+                    "You are not authorized to use this bot.\n\n"
+                    "📩 Contact @THe_vK_3 for access!"
+                ),
+                parse_mode="HTML"
+            return
+        return func(update, context, *args, **kwargs)
+    return wrapped
+
+# ——————————————————————————————————————————————————————————————
+# 3) Set up logging, Updater & Dispatcher
 # ——————————————————————————————————————————————————————————————
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -57,14 +81,15 @@ updater = Updater(TELEGRAM_TOKEN, use_context=True)
 dispatcher = updater.dispatcher
 
 # ——————————————————————————————————————————————————————————————
-# 3) In‐memory caches per chat
+# 4) In‐memory caches per chat
 # ——————————————————————————————————————————————————————————————
 search_cache = {}    # chat_id → [ (title, slug), … ]
 episode_cache = {}   # chat_id → [ (ep_num, episode_id), … ]
 
 # ——————————————————————————————————————————————————————————————
-# 4) /start handler
+# 5) /start handler
 # ——————————————————————————————————————————————————————————————
+@restricted
 def start(update: Update, context: CallbackContext):
     update.message.reply_text(
         "🌸 *Hianime Downloader* 🌸\n\n"
@@ -84,8 +109,9 @@ def start(update: Update, context: CallbackContext):
     )
 
 # ——————————————————————————————————————————————————————————————
-# 5) /search handler
+# 6) /search handler
 # ——————————————————————————————————————————————————————————————
+@restricted
 def search_command(update: Update, context: CallbackContext):
     if not context.args:
         update.message.reply_text("Usage: `/search Naruto`", parse_mode="MarkdownV2")
@@ -117,8 +143,9 @@ def search_command(update: Update, context: CallbackContext):
     msg.edit_text("Select the anime:", reply_markup=reply_markup)
 
 # ——————————————————————————————————————————————————————————————
-# 6) anime_idx callback
+# 7) anime_idx callback
 # ——————————————————————————————————————————————————————————————
+@restricted
 def anime_callback(update: Update, context: CallbackContext):
     query = update.callback_query
     query.answer()
@@ -160,8 +187,9 @@ def anime_callback(update: Update, context: CallbackContext):
     )
 
 # —─────────────────────────────────────────────────────────────────────────────
-# 7a) episode_idx callback
+# 8a) episode_idx callback
 # —─────────────────────────────────────────────────────────────────────────────
+@restricted
 def episode_callback(update: Update, context: CallbackContext):
     query = update.callback_query
     query.answer()
@@ -180,17 +208,19 @@ def episode_callback(update: Update, context: CallbackContext):
     # 1) Send details block
     header = "🔰 *Details Of Anime* 🔰"
     details = f"🎬 *Name:* {anime_title}\n🔢 *Episode:* {ep_num}"
-    details_msg = query.message.reply_text(
-        f"{header}\n\n{details}",
-        parse_mode="MarkdownV2"
-    )
+    query.message.reply_text(f"{header}\n\n{details}", parse_mode="MarkdownV2")
+
+    # Ensure per-chat cache dirs
+    video_cache_dir = os.path.join("video_cache", str(chat_id))
+    subtitle_cache_dir = os.path.join("subtitles_cache", str(chat_id))
+    os.makedirs(video_cache_dir, exist_ok=True)
+    os.makedirs(subtitle_cache_dir, exist_ok=True)
 
     # 2) Download video
     try:
+        hls_link, _ = extract_episode_stream_and_subtitle(ep_id)
         video_path = download_and_rename_video(
-            extract_episode_stream_and_subtitle(ep_id)[0],
-            anime_title, ep_num,
-            cache_dir="video_cache"
+            hls_link, anime_title, ep_num, cache_dir=video_cache_dir
         )
         with open(video_path, "rb") as vf:
             context.bot.send_video(
@@ -207,9 +237,9 @@ def episode_callback(update: Update, context: CallbackContext):
 
     # 3) Download subtitle
     try:
-        sub_url = extract_episode_stream_and_subtitle(ep_id)[1]
+        _, sub_url = extract_episode_stream_and_subtitle(ep_id)
         local_vtt = download_and_rename_subtitle(
-            sub_url, ep_num, cache_dir="subtitles_cache"
+            sub_url, ep_num, cache_dir=subtitle_cache_dir
         )
         with open(local_vtt, "rb") as f:
             context.bot.send_document(
@@ -226,8 +256,9 @@ def episode_callback(update: Update, context: CallbackContext):
     context.bot.delete_message(chat_id, original_msg_id)
 
 # —─────────────────────────────────────────────────────────────────────────────
-# 7b) Download All callback
+# 8b) Download All callback
 # —─────────────────────────────────────────────────────────────────────────────
+@restricted
 def episodes_all_callback(update: Update, context: CallbackContext):
     query = update.callback_query
     query.answer()
@@ -242,20 +273,21 @@ def episodes_all_callback(update: Update, context: CallbackContext):
     anime_title = context.user_data.get('anime_title', 'Unknown')
     header = "🔰 *Details Of Anime* 🔰"
     details = f"🎬 *Name:* {anime_title}\n🔢 *Episode:* All"
-    details_msg = query.message.reply_text(
-        f"{header}\n\n{details}",
-        parse_mode="MarkdownV2"
-    )
+    query.message.reply_text(f"{header}\n\n{details}", parse_mode="MarkdownV2")
 
-    query.edit_message_text(
-        "🔄 Downloading all episodes… this may take some time."
-    )
+    query.edit_message_text("🔄 Downloading all episodes… this may take some time.")
+
+    # Ensure per-chat cache dirs
+    video_cache_dir = os.path.join("video_cache", str(chat_id))
+    subtitle_cache_dir = os.path.join("subtitles_cache", str(chat_id))
+    os.makedirs(video_cache_dir, exist_ok=True)
+    os.makedirs(subtitle_cache_dir, exist_ok=True)
+
     for ep_num, ep_id in eps:
         try:
             hls_link, sub_url = extract_episode_stream_and_subtitle(ep_id)
             video_path = download_and_rename_video(
-                hls_link, anime_title, ep_num,
-                cache_dir="video_cache"
+                hls_link, anime_title, ep_num, cache_dir=video_cache_dir
             )
             with open(video_path, "rb") as vf:
                 context.bot.send_video(
@@ -271,7 +303,7 @@ def episodes_all_callback(update: Update, context: CallbackContext):
 
         try:
             local_vtt = download_and_rename_subtitle(
-                sub_url, ep_num, cache_dir="subtitles_cache"
+                sub_url, ep_num, cache_dir=subtitle_cache_dir
             )
             with open(local_vtt, "rb") as f:
                 context.bot.send_document(
@@ -288,7 +320,7 @@ def episodes_all_callback(update: Update, context: CallbackContext):
     context.bot.delete_message(chat_id, original_msg_id)
 
 # —─────────────────────────────────────────────────────────────────────────────
-# 8) Error handler
+# 9) Error handler
 # —─────────────────────────────────────────────────────────────────────────────
 def error_handler(update: object, context: CallbackContext):
     logger.error("Update caused error", exc_info=context.error)
@@ -296,7 +328,7 @@ def error_handler(update: object, context: CallbackContext):
         update.callback_query.message.reply_text("⚠️ Oops, something went wrong.")
 
 # —─────────────────────────────────────────────────────────────────────────────
-# 9) Register handlers & start polling
+# 10) Register handlers & start polling
 # —─────────────────────────────────────────────────────────────────────────────
 dispatcher.add_handler(CommandHandler("start", start))
 dispatcher.add_handler(CommandHandler("search", search_command))
