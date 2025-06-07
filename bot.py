@@ -225,23 +225,18 @@ def episode_callback(update: Update, context: CallbackContext):
     os.makedirs(video_cache_dir, exist_ok=True)
     os.makedirs(subtitle_cache_dir, exist_ok=True)
 
-    # 2) Download video
+
+    # 2) Just send the HLS link instead of downloading
     try:
         hls_link, _ = extract_episode_stream_and_subtitle(ep_id)
-        video_path = download_and_rename_video(
-            hls_link, anime_title, ep_num, cache_dir=video_cache_dir
+        context.bot.send_message(
+            chat_id=chat_id,
+            text=f"🔗 *HLS Link for Episode {ep_num}:*\n`{hls_link}`",
+            parse_mode="MarkdownV2"
         )
-        with open(video_path, "rb") as vf:
-            context.bot.send_video(
-                chat_id=chat_id,
-                video=InputFile(vf, filename=os.path.basename(video_path)),
-                supports_streaming=True
-            )
-        os.remove(video_path)
     except Exception:
-        logger.exception("Video download error")
-        context.bot.send_message(chat_id, f"⚠️ Failed to download video for Episode {ep_num}.")
-        context.bot.delete_message(chat_id, original_msg_id)
+        logger.exception("Failed to fetch HLS link")
+        context.bot.send_message(chat_id, f"⚠️ Could not retrieve HLS link for Episode {ep_num}.")
         return
 
     # 3) Download subtitle
@@ -288,46 +283,20 @@ def episodes_all_callback(update: Update, context: CallbackContext):
     details = f"🎬 *Name:* {anime_title}\n🔢 *Episode:* All"
     query.message.reply_text(f"{header}\n\n{details}", parse_mode="MarkdownV2")
 
-    query.edit_message_text("🔄 Downloading all episodes… this may take some time.")
-
-    # Ensure per-chat cache dirs
-    video_cache_dir = os.path.join("video_cache", str(chat_id))
-    subtitle_cache_dir = os.path.join("subtitles_cache", str(chat_id))
-    os.makedirs(video_cache_dir, exist_ok=True)
-    os.makedirs(subtitle_cache_dir, exist_ok=True)
-
+    # Simply send each HLS link
+    lines = []
     for ep_num, ep_id in eps:
         try:
-            hls_link, sub_url = extract_episode_stream_and_subtitle(ep_id)
-            video_path = download_and_rename_video(
-                hls_link, anime_title, ep_num, cache_dir=video_cache_dir
-            )
-            with open(video_path, "rb") as vf:
-                context.bot.send_video(
-                    chat_id=chat_id,
-                    video=InputFile(vf, filename=os.path.basename(video_path)),
-                    supports_streaming=True
-                )
-            os.remove(video_path)
-        except Exception:
-            logger.exception("Bulk video download error")
-            context.bot.send_message(chat_id, f"⚠️ Failed to download video Ep {ep_num}.")
-            continue
+            hls_link, _ = extract_episode_stream_and_subtitle(ep_id)
+            lines.append(f"*Ep {ep_num}*: `{hls_link}`")
+        except:
+            lines.append(f"*Ep {ep_num}*: _error fetching link_")
 
-        try:
-            local_vtt = download_and_rename_subtitle(
-                sub_url, ep_num, cache_dir=subtitle_cache_dir
-            )
-            with open(local_vtt, "rb") as f:
-                context.bot.send_document(
-                    chat_id=chat_id,
-                    document=InputFile(f, filename=os.path.basename(local_vtt)),
-                    caption=f"Subtitle for Episode {ep_num}"
-                )
-            os.remove(local_vtt)
-        except Exception:
-            logger.exception("Bulk subtitle error")
-            context.bot.send_message(chat_id, f"⚠️ Failed to download subtitle Ep {ep_num}.")
+    context.bot.send_message(
+        chat_id=chat_id,
+        text="🔗 *All HLS Links:*\n" + "\n".join(lines),
+        parse_mode="MarkdownV2"
+    )
 
     # Delete the episode list message after bulk
     context.bot.delete_message(chat_id, original_msg_id)
