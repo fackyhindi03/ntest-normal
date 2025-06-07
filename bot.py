@@ -43,13 +43,11 @@ ANIWATCH_API_BASE = os.getenv("ANIWATCH_API_BASE")
 if not ANIWATCH_API_BASE:
     raise RuntimeError("ANIWATCH_API_BASE environment variable is not set")
 
-# Inject base URL into the scraper
 hianimez_scraper.ANIWATCH_API_BASE = ANIWATCH_API_BASE
 
 # ——————————————————————————————————————————————————————————————
 # 2) Authorization decorator
 # ——————————————————————————————————————————————————————————————
-# Replace with your allowed Telegram user IDs
 AUTHORIZED_USERS = {1423807625, 5476335536, 2096201372, 633599652}
 
 def restricted(func):
@@ -71,7 +69,7 @@ def restricted(func):
     return wrapped
 
 # ——————————————————————————————————————————————————————————————
-# 3) Set up logging, Updater & Dispatcher
+# 3) Logging, Updater & Dispatcher
 # ——————————————————————————————————————————————————————————————
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -141,8 +139,7 @@ def search_command(update: Update, context: CallbackContext):
         [InlineKeyboardButton(title, callback_data=f"anime_idx:{i}")]
         for i, (title, _) in enumerate(search_cache[chat_id])
     ]
-    reply_markup = InlineKeyboardMarkup(buttons)
-    msg.edit_text("Select the anime:", reply_markup=reply_markup)
+    msg.edit_text("Select the anime:", reply_markup=InlineKeyboardMarkup(buttons))
 
 # ——————————————————————————————————————————————————————————————
 # 7) anime_idx callback
@@ -218,7 +215,7 @@ def episode_callback(update: Update, context: CallbackContext):
     details = f"🎬 *Name:* {anime_title}\n🔢 *Episode:* {ep_num}"
     query.message.reply_text(f"{header}\n\n{details}", parse_mode="MarkdownV2")
 
-    # Ensure per-chat cache dirs
+    # Ensure per-chat cache dir for subtitles
     subtitle_cache_dir = os.path.join("subtitles_cache", str(chat_id))
     os.makedirs(subtitle_cache_dir, exist_ok=True)
 
@@ -265,6 +262,7 @@ def episodes_all_callback(update: Update, context: CallbackContext):
         query.answer()
     except BadRequest:
         pass
+
     chat_id = query.message.chat.id
     original_msg_id = query.message.message_id
     eps = episode_cache.get(chat_id, [])
@@ -273,15 +271,27 @@ def episodes_all_callback(update: Update, context: CallbackContext):
         query.edit_message_text("❌ Nothing to download.")
         return
 
-    # Delete the episode list message first
+    # Remove the episode-list menu
     context.bot.delete_message(chat_id, original_msg_id)
 
     # Ensure per-chat cache dir for subtitles
     subtitle_cache_dir = os.path.join("subtitles_cache", str(chat_id))
     os.makedirs(subtitle_cache_dir, exist_ok=True)
 
+    anime_title = context.user_data.get('anime_title', 'Unknown')
+
+    # Send the details block only once
+    header = "🔰 *Details Of Anime* 🔰"
+    details = f"🎬 *Name:* {anime_title}\n🔢 *Episode:* All"
+    context.bot.send_message(
+        chat_id=chat_id,
+        text=f"{header}\n\n{details}",
+        parse_mode="MarkdownV2"
+    )
+
+    # Then iterate: link + subtitle per episode
     for ep_num, ep_id in eps:
-        # 1) Send the HLS link
+        # HLS link
         try:
             hls_link, sub_url = extract_episode_stream_and_subtitle(ep_id)
             context.bot.send_message(
@@ -296,7 +306,7 @@ def episodes_all_callback(update: Update, context: CallbackContext):
                 text=f"⚠️ Could not retrieve HLS link for Episode {ep_num}."
             )
 
-        # 2) Send the subtitle file
+        # Subtitle file
         try:
             local_vtt = download_and_rename_subtitle(
                 sub_url, ep_num, cache_dir=subtitle_cache_dir
