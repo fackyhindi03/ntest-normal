@@ -13,6 +13,7 @@ from telegram import (
     InlineKeyboardMarkup,
     InputFile,
 )
+from telegram.utils.helpers import escape_markdown
 from telegram.error import BadRequest
 from telegram.ext import (
     Updater,
@@ -119,8 +120,9 @@ def search_command(update: Update, context: CallbackContext):
 
     chat_id = update.effective_chat.id
     query = " ".join(context.args).strip()
+    safe_q = escape_markdown(query, version=2)
     msg = update.message.reply_text(
-        f"🔍 Searching for *{query}*…", parse_mode="MarkdownV2"
+        f"🔍 Searching for *{safe_q}*…", parse_mode="MarkdownV2"
     )
 
     try:
@@ -131,7 +133,7 @@ def search_command(update: Update, context: CallbackContext):
         return
 
     if not results:
-        msg.edit_text(f"No results for *{query}*.", parse_mode="MarkdownV2")
+        msg.edit_text(f"No results for *{safe_q}*.", parse_mode="MarkdownV2")
         return
 
     search_cache[chat_id] = [(title, slug) for title, _, slug in results]
@@ -161,10 +163,10 @@ def anime_callback(update: Update, context: CallbackContext):
         return
 
     context.user_data['anime_title'] = title
+    safe_t = escape_markdown(title, version=2)
     query.edit_message_text(
-        f"🔍 Fetching episodes for *{title}*…", parse_mode="MarkdownV2"
+        f"🔍 Fetching episodes for *{safe_t}*…", parse_mode="MarkdownV2"
     )
-
     try:
         episodes = get_episodes_list(f"{ANIWATCH_API_BASE}/watch/{slug}")
     except Exception:
@@ -212,7 +214,8 @@ def episode_callback(update: Update, context: CallbackContext):
 
     # 1) Send details block
     header = "🔰 *Details Of Anime* 🔰"
-    details = f"🎬 *Name:* {anime_title}\n🔢 *Episode:* {ep_num}"
+    safe_t = escape_markdown(anime_title, version=2)
+    details = f"🎬 *Name:* {safe_t}\n🔢 *Episode:* {ep_num}"
     query.message.reply_text(f"{header}\n\n{details}", parse_mode="MarkdownV2")
 
     # Ensure per-chat cache dir for subtitles
