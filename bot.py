@@ -172,7 +172,7 @@ def episode_callback(update: Update, context: CallbackContext):
     )
 
     # 2) Download logic
-    query.message.reply_text()
+
     try:
         hls_link, sub_url = extract_episode_stream_and_subtitle(ep_id)
     except Exception:
@@ -235,7 +235,7 @@ def episodes_all_callback(update: Update, context: CallbackContext):
         parse_mode="MarkdownV2"
     )
 
-    query.edit_message_text()
+
     for ep_num, ep_id in eps:
         try:
             hls_link, sub_url = extract_episode_stream_and_subtitle(ep_id)
