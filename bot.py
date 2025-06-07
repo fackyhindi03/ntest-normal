@@ -6,7 +6,6 @@ load_dotenv()
 
 import os
 import logging
-import subprocess
 
 from telegram import (
     Update,
@@ -27,10 +26,7 @@ from hianimez_scraper import (
     get_episodes_list,
     extract_episode_stream_and_subtitle,
 )
-from utils import (
-    download_and_rename_video,
-    download_and_rename_subtitle,
-)
+from utils import download_and_rename_subtitle
 
 # ——————————————————————————————————————————————————————————————
 # 1) Load & validate environment
@@ -59,7 +55,7 @@ updater = Updater(TELEGRAM_TOKEN, use_context=True)
 dispatcher = updater.dispatcher
 
 # ——————————————————————————————————————————————————————————————
-# 3) In‐memory caches per chat
+# 3) In-memory caches per chat
 # ——————————————————————————————————————————————————————————————
 search_cache = {}    # chat_id → [ (title, slug), … ]
 episode_cache = {}   # chat_id → [ (ep_num, episode_id), … ]
@@ -70,7 +66,8 @@ episode_cache = {}   # chat_id → [ (ep_num, episode_id), … ]
 def start(update: Update, context: CallbackContext):
     update.message.reply_text(
         "👋 Hello! Use `/search <anime name>` to look up shows on hianimez.\n"
-        "Then tap a button to pick an episode or Download All.",
+        "Then pick an episode and I’ll send you a .strm file named <Anime> E<Num>.strm\n"
+        "– open it in VLC or pass it to your downloader.",
         parse_mode="MarkdownV2"
     )
 
@@ -139,7 +136,7 @@ def anime_callback(update: Update, context: CallbackContext):
 
     episode_cache[chat_id] = episodes
     buttons = [
-        [InlineKeyboardButton(f"Episode {ep_num}", callback_data=f"episode_idx:{i}")] 
+        [InlineKeyboardButton(f"Episode {ep_num}", callback_data=f"episode_idx:{i}")]
         for i, (ep_num, _) in enumerate(episodes)
     ]
     buttons.append([InlineKeyboardButton("Download All", callback_data="episode_all")])
@@ -168,7 +165,7 @@ def episode_callback(update: Update, context: CallbackContext):
     anime_title = context.user_data.get('anime_title', 'Unknown')
 
     # 1) Send details block in HTML
-    details_msg = context.bot.send_message(
+    context.bot.send_message(
         chat_id=chat_id,
         text=(
             "🔰 <b>Details Of Anime</b> 🔰\n\n"
@@ -178,31 +175,25 @@ def episode_callback(update: Update, context: CallbackContext):
         parse_mode="HTML"
     )
 
-    # 2) Download video (with fallback)
-    try:
-        video_url, sub_url = extract_episode_stream_and_subtitle(ep_id)
-        try:
-            video_path = download_and_rename_video(video_url, anime_title, ep_num)
-            with open(video_path, "rb") as vf:
-                context.bot.send_video(
-                    chat_id=chat_id,
-                    video=InputFile(vf, filename=os.path.basename(video_path)),
-                    supports_streaming=True
-                )
-            os.remove(video_path)
-        except subprocess.CalledProcessError:
-            logger.exception("Video download error")
-            context.bot.send_message(
-                chat_id,
-                f"⚠️ Couldn't download the video. Stream it here:\n{video_url}"
-            )
-    except Exception:
-        logger.exception("Extraction error")
-        context.bot.send_message(chat_id, f"❌ Could not extract Episode {ep_num}.")
-        context.bot.delete_message(chat_id, original_msg_id)
-        return
+    # 2) Create .strm file named "<Anime> E<Num>.strm"
+    os.makedirs("strm_files", exist_ok=True)
+    strm_filename = f"{anime_title} E{ep_num}.strm"
+    strm_path = os.path.join("strm_files", strm_filename)
 
-    # 3) Download subtitle
+    stream_url, sub_url = extract_episode_stream_and_subtitle(ep_id)
+    with open(strm_path, "w") as f:
+        f.write(stream_url)
+
+    # Send the .strm file
+    with open(strm_path, "rb") as f:
+        context.bot.send_document(
+            chat_id=chat_id,
+            document=InputFile(f, filename=strm_filename),
+            caption="Open this file in VLC or pass it to your downloader"
+        )
+    os.remove(strm_path)
+
+    # 3) Download & send subtitle if available
     if sub_url:
         try:
             local_vtt = download_and_rename_subtitle(sub_url, ep_num, cache_dir="subtitles_cache")
@@ -217,7 +208,7 @@ def episode_callback(update: Update, context: CallbackContext):
             logger.exception("Subtitle download error")
             context.bot.send_message(chat_id, f"⚠️ Failed to download subtitle for Episode {ep_num}.")
 
-    # Delete the episode-list message
+    # Delete the episode-listing message
     context.bot.delete_message(chat_id, original_msg_id)
 
 # —─────────────────────────────────────────────────────────────────────────────
@@ -235,6 +226,7 @@ def episodes_all_callback(update: Update, context: CallbackContext):
         return
 
     anime_title = context.user_data.get('anime_title', 'Unknown')
+
     # Details block for all
     context.bot.send_message(
         chat_id=chat_id,
@@ -247,31 +239,31 @@ def episodes_all_callback(update: Update, context: CallbackContext):
     )
 
     # Notify start
-    query.edit_message_text("🔄 Downloading all episodes… this may take some time.")
+    query.edit_message_text("🔄 Preparing .strm files for all episodes…")
 
+    os.makedirs("strm_files", exist_ok=True)
     for ep_num, ep_id in eps:
         try:
-            video_url, sub_url = extract_episode_stream_and_subtitle(ep_id)
-            try:
-                video_path = download_and_rename_video(video_url, anime_title, ep_num)
-                with open(video_path, "rb") as vf:
-                    context.bot.send_video(
-                        chat_id=chat_id,
-                        video=InputFile(vf, filename=os.path.basename(video_path)),
-                        supports_streaming=True
-                    )
-                os.remove(video_path)
-            except subprocess.CalledProcessError:
-                logger.exception("Bulk video download error")
-                context.bot.send_message(
-                    chat_id,
-                    f"⚠️ Couldn't download Ep {ep_num}. Stream here:\n{video_url}"
-                )
+            stream_url, sub_url = extract_episode_stream_and_subtitle(ep_id)
         except Exception:
             logger.exception("Bulk extract error")
             context.bot.send_message(chat_id, f"❌ Ep {ep_num} failed. Skipping.")
             continue
 
+        strm_filename = f"{anime_title} E{ep_num}.strm"
+        strm_path = os.path.join("strm_files", strm_filename)
+        with open(strm_path, "w") as f:
+            f.write(stream_url)
+
+        with open(strm_path, "rb") as f:
+            context.bot.send_document(
+                chat_id=chat_id,
+                document=InputFile(f, filename=strm_filename),
+                caption=f"Stream file for Episode {ep_num}"
+            )
+        os.remove(strm_path)
+
+        # Subtitle
         if sub_url:
             try:
                 local_vtt = download_and_rename_subtitle(sub_url, ep_num, cache_dir="subtitles_cache")
@@ -286,7 +278,7 @@ def episodes_all_callback(update: Update, context: CallbackContext):
                 logger.exception("Bulk subtitle error")
                 context.bot.send_message(chat_id, f"⚠️ Failed to download subtitle Ep {ep_num}.")
 
-    # Delete the episode-list message
+    # Delete the episode-listing message
     context.bot.delete_message(chat_id, original_msg_id)
 
 # —─────────────────────────────────────────────────────────────────────────────
