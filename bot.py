@@ -66,8 +66,7 @@ episode_cache = {}   # chat_id → [ (ep_num, episode_id), … ]
 def start(update: Update, context: CallbackContext):
     update.message.reply_text(
         "👋 Hello! Use `/search <anime name>` to look up shows on hianimez.\n"
-        "Then pick an episode and I’ll send you a .strm file named <Anime> E<Num>.strm\n"
-        "– open it in VLC or pass it to your downloader.",
+        "Then pick an episode and I’ll send you a link labeled <Anime> E<Num>.",
         parse_mode="MarkdownV2"
     )
 
@@ -175,23 +174,13 @@ def episode_callback(update: Update, context: CallbackContext):
         parse_mode="HTML"
     )
 
-    # 2) Create .strm file named "<Anime> E<Num>.strm"
-    os.makedirs("strm_files", exist_ok=True)
-    strm_filename = f"{anime_title} E{ep_num}.strm"
-    strm_path = os.path.join("strm_files", strm_filename)
-
+    # 2) *** REPLACED: send link instead of .strm ***
     stream_url, sub_url = extract_episode_stream_and_subtitle(ep_id)
-    with open(strm_path, "w") as f:
-        f.write(stream_url)
-
-    # Send the .strm file
-    with open(strm_path, "rb") as f:
-        context.bot.send_document(
-            chat_id=chat_id,
-            document=InputFile(f, filename=strm_filename),
-            caption="Open this file in VLC or pass it to your downloader"
-        )
-    os.remove(strm_path)
+    context.bot.send_message(
+        chat_id=chat_id,
+        text=f"<a href=\"{stream_url}\">{anime_title} E{ep_num}</a>",
+        parse_mode="HTML"
+    )
 
     # 3) Download & send subtitle if available
     if sub_url:
@@ -238,10 +227,7 @@ def episodes_all_callback(update: Update, context: CallbackContext):
         parse_mode="HTML"
     )
 
-    # Notify start
-    query.edit_message_text("🔄 Preparing .strm files for all episodes…")
-
-    os.makedirs("strm_files", exist_ok=True)
+    # 2) *** REPLACED: send links instead of .strm ***
     for ep_num, ep_id in eps:
         try:
             stream_url, sub_url = extract_episode_stream_and_subtitle(ep_id)
@@ -250,20 +236,13 @@ def episodes_all_callback(update: Update, context: CallbackContext):
             context.bot.send_message(chat_id, f"❌ Ep {ep_num} failed. Skipping.")
             continue
 
-        strm_filename = f"{anime_title} E{ep_num}.strm"
-        strm_path = os.path.join("strm_files", strm_filename)
-        with open(strm_path, "w") as f:
-            f.write(stream_url)
+        context.bot.send_message(
+            chat_id=chat_id,
+            text=f"<a href=\"{stream_url}\">{anime_title} E{ep_num}</a>",
+            parse_mode="HTML"
+        )
 
-        with open(strm_path, "rb") as f:
-            context.bot.send_document(
-                chat_id=chat_id,
-                document=InputFile(f, filename=strm_filename),
-                caption=f"Stream file for Episode {ep_num}"
-            )
-        os.remove(strm_path)
-
-        # Subtitle
+        # subtitle
         if sub_url:
             try:
                 local_vtt = download_and_rename_subtitle(sub_url, ep_num, cache_dir="subtitles_cache")
