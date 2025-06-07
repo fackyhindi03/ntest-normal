@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # bot.py
+
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -18,6 +19,7 @@ from telegram.ext import (
     CallbackContext,
 )
 
+import hianimez_scraper
 from hianimez_scraper import (
     search_anime,
     get_episodes_list,
@@ -26,7 +28,7 @@ from hianimez_scraper import (
 from utils import download_and_rename_subtitle
 
 # ——————————————————————————————————————————————————————————————
-# 1) Load environment variables
+# 1) Load & validate environment
 # ——————————————————————————————————————————————————————————————
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 if not TELEGRAM_TOKEN:
@@ -34,314 +36,238 @@ if not TELEGRAM_TOKEN:
 
 ANIWATCH_API_BASE = os.getenv("ANIWATCH_API_BASE")
 if not ANIWATCH_API_BASE:
-    raise RuntimeError(
-        "ANIWATCH_API_BASE environment variable is not set. It should be your AniWatch API URL."
-    )
+    raise RuntimeError("ANIWATCH_API_BASE environment variable is not set")
+
+# Inject your base URL into the scraper module so its functions use it:
+hianimez_scraper.ANIWATCH_API_BASE = ANIWATCH_API_BASE
 
 # ——————————————————————————————————————————————————————————————
-# 2) Initialize Bot + Dispatcher
+# 2) Set up logging, Updater & Dispatcher
 # ——————————————————————————————————————————————————————————————
-updater = Updater(TELEGRAM_TOKEN, use_context=True)
-dispatcher = updater.dispatcher
-
 logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO,
 )
 logger = logging.getLogger(__name__)
 
-# ——————————————————————————————————————————————————————————————
-# 3) In‐memory caches for search results & episode lists per chat
-# ——————————————————————————————————————————————————————————————
-search_cache = {}   # chat_id → [ (title, slug), … ]
-episode_cache = {}  # chat_id → [ (ep_num, episode_id), … ]
+updater = Updater(TELEGRAM_TOKEN, use_context=True)
+dispatcher = updater.dispatcher
 
+# ——————————————————————————————————————————————————————————————
+# 3) In‐memory caches per chat
+# ——————————————————————————————————————————————————————————————
+search_cache = {}    # chat_id → [ (title, slug), … ]
+episode_cache = {}   # chat_id → [ (ep_num, episode_id), … ]
 
 # ——————————————————————————————————————————————————————————————
 # 4) /start handler
 # ——————————————————————————————————————————————————————————————
 def start(update: Update, context: CallbackContext):
     update.message.reply_text(
-        "👋 Hello! I can help you search for anime on hianimez.to and\n"
-        " extract the SUB-HD2 Video HLS link + English subtitles.\n\n"
-        "Use /search <anime name> to begin."
+        "👋 Hello! Use `/search <anime name>` to look up shows on hianimez.\n"
+        "Then tap a button to pick an episode or Download All."
     )
-
 
 # ——————————————————————————————————————————————————————————————
 # 5) /search handler
 # ——————————————————————————————————————————————————————————————
 def search_command(update: Update, context: CallbackContext):
-    if len(context.args) == 0:
-        update.message.reply_text("Please provide an anime name. Example: /search Naruto")
+    if not context.args:
+        update.message.reply_text("Usage: `/search Naruto`", parse_mode="Markdown")
         return
 
     chat_id = update.effective_chat.id
     query = " ".join(context.args).strip()
-    msg = update.message.reply_text(f"🔍 Searching for \"{query}\"…")
+    msg = update.message.reply_text(f"🔍 Searching for *{query}*…", parse_mode="Markdown")
 
     try:
+        # now uses ANIWATCH_API_BASE internally
         results = search_anime(query)
-    except Exception as e:
-        logger.error(f"Search error: {e}", exc_info=True)
-        msg.edit_text("❌ Search error; please try again later.")
+    except Exception:
+        logger.exception("Search error")
+        msg.edit_text("❌ Search failed. Try again later.")
         return
 
     if not results:
-        msg.edit_text(f"No anime found matching \"{query}\".")
+        msg.edit_text(f"No results for *{query}*.", parse_mode="Markdown")
         return
 
-    # Store (title, slug) in search_cache[chat_id]
-    search_cache[chat_id] = [(title, slug) for title, anime_url, slug in results]
+    # Cache [(title, slug), …]
+    search_cache[chat_id] = [(title, slug) for title, _, slug in results]
 
-    buttons = []
-    for idx, (title, slug) in enumerate(search_cache[chat_id]):
-        buttons.append([InlineKeyboardButton(title, callback_data=f"anime_idx:{idx}")])
-
+    buttons = [
+        [InlineKeyboardButton(title, callback_data=f"anime_idx:{i}")]
+        for i, (title, _) in enumerate(search_cache[chat_id])
+    ]
     reply_markup = InlineKeyboardMarkup(buttons)
-    msg.edit_text("Select the anime you want:", reply_markup=reply_markup)
-
+    msg.edit_message_text("Select the anime:", reply_markup=reply_markup)
 
 # ——————————————————————————————————————————————————————————————
-# 6) Callback when user taps an anime button (anime_idx)
+# 6) anime_idx callback
 # ——————————————————————————————————————————————————————————————
 def anime_callback(update: Update, context: CallbackContext):
     query = update.callback_query
     query.answer()
-
     chat_id = query.message.chat.id
-    data = query.data  # e.g. "anime_idx:3"
+
     try:
-        _, idx_str = data.split(":", maxsplit=1)
-        idx = int(idx_str)
+        idx = int(query.data.split(":", 1)[1])
+        title, slug = search_cache[chat_id][idx]
     except Exception:
-        query.edit_message_text("❌ Internal error: invalid anime selection.")
+        query.edit_message_text("❌ Invalid selection.")
         return
 
-    anime_list = search_cache.get(chat_id, [])
-    if idx < 0 or idx >= len(anime_list):
-        query.edit_message_text("❌ Internal error: anime index out of range.")
-        return
-
-    title, slug = anime_list[idx]
-    anime_url = f"https://hianimez.to/watch/{slug}"
-
-    msg = query.edit_message_text(
-        f"🔍 Fetching episodes for *{title}*…", parse_mode="MarkdownV2"
-    )
+    query.edit_message_text(f"🔍 Fetching episodes for *{title}*…", parse_mode="Markdown")
 
     try:
-        episodes = get_episodes_list(anime_url)
-    except Exception as e:
-        logger.error(f"Error fetching episodes: {e}", exc_info=True)
-        query.edit_message_text("❌ Failed to retrieve episodes for that anime.")
+        episodes = get_episodes_list(f"{hianimez_scraper.ANIWATCH_API_BASE}/watch/{slug}")
+    except Exception:
+        logger.exception("Episode fetch error")
+        query.edit_message_text("❌ Could not fetch episodes.")
         return
 
     if not episodes:
-        query.edit_message_text("No episodes found for that anime.")
+        query.edit_message_text("No episodes found.")
         return
 
-    # Store (ep_num, episode_id) in episode_cache[chat_id]
-    episode_cache[chat_id] = []
-    for ep_num, ep_id in episodes:
-        episode_cache[chat_id].append((ep_num, ep_id))
+    # Cache [(ep_num, ep_id), …]
+    episode_cache[chat_id] = episodes
 
-    # Build buttons for each episode
-    buttons = []
-    for i, (ep_num, ep_id) in enumerate(episode_cache[chat_id]):
-        buttons.append([InlineKeyboardButton(f"Episode {ep_num}", callback_data=f"episode_idx:{i}")])
-
-    # Add one final row for "Download All"
+    buttons = [
+        [InlineKeyboardButton(f"Episode {ep_num}", callback_data=f"episode_idx:{i}")]
+        for i, (ep_num, _) in enumerate(episodes)
+    ]
     buttons.append([InlineKeyboardButton("Download All", callback_data="episode_all")])
 
-    reply_markup = InlineKeyboardMarkup(buttons)
-    query.edit_message_text("Select an episode (or download all):", reply_markup=reply_markup)
+    query.edit_message_text(
+        "Select an episode (or Download All):",
+        reply_markup=InlineKeyboardMarkup(buttons),
+    )
 
-
-# ──────────────────────────────────────────────────────────────────────────────
-# 7a) Callback when user taps a single episode button (episode_idx)
-# ──────────────────────────────────────────────────────────────────────────────
+# ——————————————————————————————————————————————————————————————
+# 7a) episode_idx callback
+# ——————————————————————————————————————————————————————————————
 def episode_callback(update: Update, context: CallbackContext):
     query = update.callback_query
     query.answer()
-
     chat_id = query.message.chat.id
-    data = query.data  # e.g. "episode_idx:5"
+
     try:
-        _, idx_str = data.split(":", maxsplit=1)
-        idx = int(idx_str)
+        idx = int(query.data.split(":", 1)[1])
+        ep_num, ep_id = episode_cache[chat_id][idx]
     except Exception:
-        query.edit_message_text("❌ Internal error: invalid episode selection.")
+        query.edit_message_text("❌ Invalid episode selection.")
         return
 
-    ep_list = episode_cache.get(chat_id, [])
-    if idx < 0 or idx >= len(ep_list):
-        query.edit_message_text("❌ Internal error: episode index out of range.")
-        return
-
-    ep_num, episode_id = ep_list[idx]
-    # Let the user know we are working on it:
-    msg = query.edit_message_text(
-        f"🔄 Retrieving SUB HD-2 Video link and English subtitle for Episode {ep_num}..."
-    )
-
+    query.edit_message_text(f"🔄 Preparing Episode {ep_num}…")
     try:
-        hls_link, subtitle_url = extract_episode_stream_and_subtitle(episode_id)
-    except Exception as e:
-        logger.error(f"Error extracting episode data: {e}", exc_info=True)
-        query.edit_message_text(f"❌ Failed to extract data for Episode {ep_num}.")
+        hls_link, sub_url = extract_episode_stream_and_subtitle(ep_id)
+    except Exception:
+        logger.exception("Stream extract error")
+        query.edit_message_text(f"❌ Could not extract Episode {ep_num}.")
         return
 
-    # If we couldn’t find any HLS URL, bail out:
     if not hls_link:
-        query.edit_message_text(f"😔 Could not find a SUB HD-2 Video stream for Episode {ep_num}.")
+        query.edit_message_text(f"😔 No SUB HD-2 stream for Episode {ep_num}.")
         return
 
-    # Build a plain-text response (no MarkdownV2 anywhere)
-    text = (
-        f"🎬 Episode {ep_num}\n\n"
-        f"Video (SUB HD-2) HLS Link:\n"
-        f"{hls_link}\n\n"
-    )
-
-    # If no English .vtt was found, just send the text so far:
-    if not subtitle_url:
-        text += "❗ No English subtitle (.vtt) found."
-        query.message.reply_text(text)
+    text = f"🎬 Episode {ep_num}\n\nVideo (SUB HD-2):\n{hls_link}\n"
+    if not sub_url:
+        query.message.reply_text(text + "\n❗ No English subtitles found.")
         return
 
-    # Otherwise, attempt to download & rename the .vtt locally
+    # download subtitle
     try:
-        local_vtt = download_and_rename_subtitle(subtitle_url, ep_num, cache_dir="subtitles_cache")
-    except Exception as e:
-        logger.error(f"Error downloading/renaming subtitle: {e}", exc_info=True)
-        text += "⚠️ Found a subtitle URL, but failed to download it."
-        query.message.reply_text(text)
-        return
-
-    # Indicate that subtitle was downloaded
-    text += f"✅ English subtitle downloaded as \"Episode {ep_num}.vtt\"."
-    query.message.reply_text(text)
-
-    # Send the .vtt file
-    with open(local_vtt, "rb") as f:
-        query.message.reply_document(
-            document=InputFile(f, filename=f"Episode {ep_num}.vtt"),
-            caption=f"Here is the subtitle for Episode {ep_num}.",
+        local_vtt = download_and_rename_subtitle(
+            sub_url, ep_num, cache_dir="subtitles_cache"
         )
+        text += "\n✅ Subtitle downloaded."
+    except Exception:
+        logger.exception("Subtitle download error")
+        text += "\n⚠️ Failed to download subtitle."
+        query.message.reply_text(text)
+        return
 
-    # Clean up the local .vtt
-    try:
-        os.remove(local_vtt)
-    except OSError:
-        pass
+    query.message.reply_text(text)
+    with open(local_vtt, "rb") as f:
+        context.bot.send_document(
+            chat_id=chat_id,
+            document=InputFile(f, filename=f"Episode {ep_num}.vtt"),
+            caption=f"Subtitle for Episode {ep_num}"
+        )
+    os.remove(local_vtt)
 
-
-# ──────────────────────────────────────────────────────────────────────────────
-# 7b) Callback when user taps "Download All" button (episode_all)
-# ──────────────────────────────────────────────────────────────────────────────
+# ——————————————————————————————————————————————————————————————
+# 7b) Download All callback
+# ——————————————————————————————————————————————————————————————
 def episodes_all_callback(update: Update, context: CallbackContext):
     query = update.callback_query
     query.answer()
-
     chat_id = query.message.chat.id
+    eps = episode_cache.get(chat_id, [])
 
-    ep_list = episode_cache.get(chat_id, [])
-    if not ep_list:
-        query.edit_message_text("❌ No episodes available to download.")
+    if not eps:
+        query.edit_message_text("❌ Nothing to download.")
         return
 
-    # Let the user know we are starting the bulk download
-    query.edit_message_text("🔄 Downloading all episodes (SUB HD-2 Video + English subs)… This may take a while.")
-
-    # Iterate through each episode, send its link + subtitle
-    for ep_num, episode_id in ep_list:
-        # Retrieve HLS link + subtitle
+    query.edit_message_text("🔄 Downloading all episodes… this may take some time.")
+    for ep_num, ep_id in eps:
         try:
-            hls_link, subtitle_url = extract_episode_stream_and_subtitle(episode_id)
-        except Exception as e:
-            logger.error(f"Error extracting episode {ep_num}: {e}", exc_info=True)
-            bot.send_message(chat_id, f"❌ Failed to extract data for Episode {ep_num}. Skipping.")
+            hls_link, sub_url = extract_episode_stream_and_subtitle(ep_id)
+        except Exception:
+            logger.exception("Bulk extract error")
+            context.bot.send_message(chat_id, f"❌ Ep {ep_num} failed. Skipping.")
             continue
 
-        # If no HLS link, skip with message
         if not hls_link:
-            bot.send_message(chat_id, f"😔 Episode {ep_num}: No SUB HD-2 Video stream found. Skipping.")
+            context.bot.send_message(chat_id, f"😔 Ep {ep_num}: no stream. Skipping.")
             continue
 
-        # Send the episode HLS link + (placeholder for subtitle)
-        text = (
-            f"🎬 Episode {ep_num}\n\n"
-            f"Video (SUB HD-2) HLS Link:\n"
-            f"{hls_link}\n\n"
-        )
-
-        # If no subtitle, simply send text and continue
-        if not subtitle_url:
-            text += "❗ No English subtitle (.vtt) found."
-            bot.send_message(chat_id, text)
+        text = f"🎬 Ep {ep_num}\n\n{hls_link}\n"
+        if not sub_url:
+            context.bot.send_message(chat_id, text + "\n❗ No subtitles.")
             continue
 
-        # Otherwise, download & rename the .vtt locally
+        # download subtitle
         try:
-            local_vtt = download_and_rename_subtitle(subtitle_url, ep_num, cache_dir="subtitles_cache")
-        except Exception as e:
-            logger.error(f"Error downloading subtitle for Episode {ep_num}: {e}", exc_info=True)
-            text += "⚠️ Found a subtitle URL, but failed to download it."
-            bot.send_message(chat_id, text)
+            local_vtt = download_and_rename_subtitle(
+                sub_url, ep_num, cache_dir="subtitles_cache"
+            )
+            text += "\n✅ Subtitle downloaded."
+        except Exception:
+            logger.exception("Bulk subtitle error")
+            context.bot.send_message(chat_id, text + "\n⚠️ Subtitle download failed.")
             continue
 
-        # Indicate subtitle downloaded
-        text += f"✅ English subtitle downloaded as \"Episode {ep_num}.vtt\"."
-        bot.send_message(chat_id, text)
-
-        # Send the .vtt file
-        try:
-            with open(local_vtt, "rb") as f:
-                bot.send_document(
-                    chat_id=chat_id,
-                    document=InputFile(f, filename=f"Episode {ep_num}.vtt"),
-                    caption=f"Subtitle for Episode {ep_num}"
-                )
-        except Exception as e:
-            logger.error(f"Error sending subtitle for Episode {ep_num}: {e}", exc_info=True)
-            bot.send_message(chat_id, f"⚠️ Could not send subtitle file for Episode {ep_num}.")
-        finally:
-            try:
-                os.remove(local_vtt)
-            except OSError:
-                pass
-
+        context.bot.send_message(chat_id, text)
+        with open(local_vtt, "rb") as f:
+            context.bot.send_document(
+                chat_id=chat_id,
+                document=InputFile(f, filename=f"Episode {ep_num}.vtt"),
+                caption=f"Subtitle for Episode {ep_num}"
+            )
+        os.remove(local_vtt)
 
 # ——————————————————————————————————————————————————————————————
 # 8) Error handler
 # ——————————————————————————————————————————————————————————————
 def error_handler(update: object, context: CallbackContext):
-    logger.error("Exception while handling an update:", exc_info=context.error)
+    logger.error("Update caused error", exc_info=context.error)
     if isinstance(update, Update) and update.callback_query:
         update.callback_query.message.reply_text("⚠️ Oops, something went wrong.")
 
-
-
-
 # ——————————————————————————————————————————————————————————————
-# 9) Flask app for webhook + health check
+# 9) Register handlers & start polling
 # ——————————————————————————————————————————————————————————————
-def main():
-    # register all your existing handlers exactly as before
-    dispatcher.add_handler(CommandHandler("start", start))
-    dispatcher.add_handler(CommandHandler("search", search_command))
-    dispatcher.add_handler(CallbackQueryHandler(anime_callback,   pattern=r"^anime_idx:"))
-    dispatcher.add_handler(CallbackQueryHandler(episode_callback, pattern=r"^episode_idx:"))
-    dispatcher.add_handler(CallbackQueryHandler(episodes_all_callback,
-                                               pattern=r"^episode_all$"))
-    dispatcher.add_error_handler(error_handler)
-
-    logger.info("🔄 Starting long-polling…")
-    updater.start_polling()
-    updater.idle()
-
+dispatcher.add_handler(CommandHandler("start", start))
+dispatcher.add_handler(CommandHandler("search", search_command))
+dispatcher.add_handler(CallbackQueryHandler(anime_callback,   pattern=r"^anime_idx:"))
+dispatcher.add_handler(CallbackQueryHandler(episode_callback, pattern=r"^episode_idx:"))
+dispatcher.add_handler(CallbackQueryHandler(episodes_all_callback,
+                                           pattern=r"^episode_all$"))
+dispatcher.add_error_handler(error_handler)
 
 if __name__ == "__main__":
-    logger.info("🔄 Starting long-polling…")
+    logger.info("🔄 Bot started with long-polling")
     updater.start_polling()
     updater.idle()
