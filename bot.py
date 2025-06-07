@@ -117,9 +117,7 @@ def anime_callback(update: Update, context: CallbackContext):
         query.edit_message_text("❌ Invalid selection.")
         return
 
-    # Save title for later
     context.user_data['anime_title'] = title
-
     query.edit_message_text(
         f"🔍 Fetching episodes for *{title}*…", parse_mode="MarkdownV2"
     )
@@ -162,35 +160,33 @@ def episode_callback(update: Update, context: CallbackContext):
         query.edit_message_text("❌ Invalid episode selection.")
         return
 
-    # 1) Details block
+    # 1) Send details block and store its message ID
     anime_title = context.user_data.get('anime_title', 'Unknown')
     header = "🔰 *Details Of Anime* 🔰"
     details = f"🎬 *Name:* {anime_title}\n🔢 *Episode:* {ep_num}"
-    query.message.reply_text(
+    details_msg = query.message.reply_text(
         f"{header}\n\n{details}",
         parse_mode="MarkdownV2"
     )
 
     # 2) Download logic
-
     try:
         hls_link, sub_url = extract_episode_stream_and_subtitle(ep_id)
     except Exception:
         logger.exception("Stream extract error")
-        query.message.reply_text(
-            f"❌ Could not extract Episode {ep_num}."
-        )
+        query.message.reply_text(f"❌ Could not extract Episode {ep_num}.")
+        context.bot.delete_message(chat_id, details_msg.message_id)
         return
 
     if not hls_link:
-        query.message.reply_text(
-            f"😔 No SUB HD-2 stream for Episode {ep_num}."
-        )
+        query.message.reply_text(f"😔 No SUB HD-2 stream for Episode {ep_num}.")
+        context.bot.delete_message(chat_id, details_msg.message_id)
         return
 
     text = f"🎬 Episode {ep_num}\n\nVideo (SUB HD-2):\n{hls_link}\n"
     if not sub_url:
         query.message.reply_text(text + "\n❗ No English subtitles found.")
+        context.bot.delete_message(chat_id, details_msg.message_id)
         return
 
     try:
@@ -202,6 +198,7 @@ def episode_callback(update: Update, context: CallbackContext):
         logger.exception("Subtitle download error")
         text += "\n⚠️ Failed to download subtitle."
         query.message.reply_text(text)
+        context.bot.delete_message(chat_id, details_msg.message_id)
         return
 
     query.message.reply_text(text)
@@ -212,6 +209,9 @@ def episode_callback(update: Update, context: CallbackContext):
             caption=f"Subtitle for Episode {ep_num}"
         )
     os.remove(local_vtt)
+
+    # delete details message after completion
+    context.bot.delete_message(chat_id, details_msg.message_id)
 
 # —─────────────────────────────────────────────────────────────────────────────
 # 7b) Download All callback
@@ -230,12 +230,14 @@ def episodes_all_callback(update: Update, context: CallbackContext):
     anime_title = context.user_data.get('anime_title', 'Unknown')
     header = "🔰 *Details Of Anime* 🔰"
     details = f"🎬 *Name:* {anime_title}\n🔢 *Episode:* All"
-    query.message.reply_text(
+    details_msg = query.message.reply_text(
         f"{header}\n\n{details}",
         parse_mode="MarkdownV2"
     )
 
-
+    query.edit_message_text(
+        "🔄 Downloading all episodes… this may take some time."
+    )
     for ep_num, ep_id in eps:
         try:
             hls_link, sub_url = extract_episode_stream_and_subtitle(ep_id)
@@ -271,6 +273,9 @@ def episodes_all_callback(update: Update, context: CallbackContext):
                 caption=f"Subtitle for Episode {ep_num}"
             )
         os.remove(local_vtt)
+
+    # delete details message after bulk completion
+    context.bot.delete_message(chat_id, details_msg.message_id)
 
 # —─────────────────────────────────────────────────────────────────────────────
 # 8) Error handler
