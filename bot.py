@@ -100,7 +100,7 @@ def search_command(update: Update, context: CallbackContext):
         for i, (title, _) in enumerate(search_cache[chat_id])
     ]
     reply_markup = InlineKeyboardMarkup(buttons)
-    msg.edit_message_text("Select the anime:", reply_markup=reply_markup)
+    msg.edit_text("Select the anime:", reply_markup=reply_markup)
 
 # ——————————————————————————————————————————————————————————————
 # 6) anime_idx callback
