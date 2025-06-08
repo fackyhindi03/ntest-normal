@@ -12,7 +12,6 @@ from telegram import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     InputFile,
-    constants,
 )
 from telegram.utils.helpers import escape_markdown
 from telegram.error import BadRequest
@@ -29,10 +28,7 @@ from hianimez_scraper import (
     get_episodes_list,
     extract_episode_stream_and_subtitle,
 )
-from utils import (
-    download_and_rename_video,
-    download_and_rename_subtitle,
-)
+from utils import download_and_rename_subtitle
 
 # ——————————————————————————————————————————————————————————————
 # 1) Load & validate environment
@@ -99,14 +95,14 @@ def start(update: Update, context: CallbackContext):
         "🎯 *What I Can Do:*\n"
         "• Search for your favorite anime on hianimez\\.to\n"
         "• Give that direct m3u8 link\n"
-        "• Include English subtitles \\ (SRT/VTT)\n"
-        "• Send everything as a document \\(no quality loss)\n\n"
+        "• Include English subtitles \\(SRT/VTT\\)\n"
+        "• Send everything as a document \\(no quality loss\\)\n\n"
         "📝 *How to Use:*\n"
         "1️⃣ `/search <anime name>` \\- Find anime titles\n"
         "2️⃣ Select the anime from the list of results\n"
         "3️⃣ Choose an episode to get link\\(or tap \"Download All\"\\)\n"
         "4️⃣ Receive the high\\-quality download link \\+ subtitles automatically\n\n"
-        "📩 *Contact @THe\\_vK\\_3 if any problem or Query* ",
+        "📩 *Contact @THe\\_vK\\_3 if any problem or Query*",
         parse_mode="MarkdownV2"
     )
 
@@ -142,7 +138,7 @@ def search_command(update: Update, context: CallbackContext):
         [InlineKeyboardButton(title, callback_data=f"anime_idx:{i}")]
         for i, (title, _) in enumerate(search_cache[chat_id])
     ]
-    msg.edit_text("Select the anime:", reply_markup=InlineKeyboardMarkup(buttons))
+    msg.edit_message_text("Select the anime:", reply_markup=InlineKeyboardMarkup(buttons))
 
 # ——————————————————————————————————————————————————————————————
 # 7) anime_idx callback
@@ -156,30 +152,18 @@ def anime_callback(update: Update, context: CallbackContext):
         pass
     chat_id = query.message.chat.id
 
-    try:
-        idx = int(query.data.split(":", 1)[1])
-        title, slug = search_cache[chat_id][idx]
-    except Exception:
-        query.edit_message_text("❌ Invalid selection.")
-        return
-
+    idx = int(query.data.split(":", 1)[1])
+    title, slug = search_cache[chat_id][idx]
     context.user_data['anime_title'] = title
+
     safe_t = escape_markdown(title, version=2)
     query.edit_message_text(
         f"🔍 Fetching episodes for *{safe_t}*…", parse_mode="MarkdownV2"
     )
-    try:
-        episodes = get_episodes_list(f"{ANIWATCH_API_BASE}/watch/{slug}")
-    except Exception:
-        logger.exception("Episode fetch error")
-        query.edit_message_text("❌ Could not fetch episodes.")
-        return
 
-    if not episodes:
-        query.edit_message_text("No episodes found.")
-        return
-
+    episodes = get_episodes_list(f"{ANIWATCH_API_BASE}/watch/{slug}")
     episode_cache[chat_id] = episodes
+
     buttons = [
         [InlineKeyboardButton(f"Episode {ep_num}", callback_data=f"episode_idx:{i}")]
         for i, (ep_num, _) in enumerate(episodes)
@@ -204,56 +188,41 @@ def episode_callback(update: Update, context: CallbackContext):
     chat_id = query.message.chat.id
     original_msg_id = query.message.message_id
 
-    try:
-        idx = int(query.data.split(":", 1)[1])
-        ep_num, ep_id = episode_cache[chat_id][idx]
-    except Exception:
-        query.edit_message_text("❌ Invalid episode selection.")
-        return
-
+    idx = int(query.data.split(":", 1)[1])
+    ep_num, ep_id = episode_cache[chat_id][idx]
     anime_title = context.user_data.get('anime_title', 'Unknown')
 
     # 1) Send details block
     header = "🔰 *Details Of Anime* 🔰"
-    safe_t = escape_markdown(anime_title, version=2)
-    details = f"🎬 *Name:* {safe_t}\n🔢 *Episode:* {ep_num}"
+    details = (
+        f"🎬 *Name:* {escape_markdown(anime_title, version=2)}\n"
+        f"🔢 *Episode:* {ep_num}"
+    )
     query.message.reply_text(f"{header}\n\n{details}", parse_mode="MarkdownV2")
 
-    # Ensure per-chat cache dir for subtitles
+    # 2) HLS link
+    hls_link, _ = extract_episode_stream_and_subtitle(ep_id)
+    safe_link = escape_markdown(hls_link, version=2)
+    context.bot.send_message(
+        chat_id=chat_id,
+        text=f"🔗 *HLS Link for Episode {ep_num}:*\n`{safe_link}`",
+        parse_mode="MarkdownV2"
+    )
+
+    # 3) Subtitle
     subtitle_cache_dir = os.path.join("subtitles_cache", str(chat_id))
     os.makedirs(subtitle_cache_dir, exist_ok=True)
-
-    # 2) Send the HLS link
-    try:
-        hls_link, _ = extract_episode_stream_and_subtitle(ep_id)
-        context.bot.send_message(
+    _, sub_url = extract_episode_stream_and_subtitle(ep_id)
+    local_vtt = download_and_rename_subtitle(sub_url, ep_num, cache_dir=subtitle_cache_dir)
+    with open(local_vtt, "rb") as f:
+        context.bot.send_document(
             chat_id=chat_id,
-            text=f"🔗 *HLS Link for Episode {ep_num}:*\n`{hls_link}`",
-            parse_mode="MarkdownV2"
+            document=InputFile(f, filename=os.path.basename(local_vtt)),
+            caption=f"Subtitle for Episode {ep_num}"
         )
-    except Exception:
-        logger.exception("Failed to fetch HLS link")
-        context.bot.send_message(chat_id, f"⚠️ Could not retrieve HLS link for Episode {ep_num}.")
-        return
+    os.remove(local_vtt)
 
-    # 3) Download subtitle
-    try:
-        _, sub_url = extract_episode_stream_and_subtitle(ep_id)
-        local_vtt = download_and_rename_subtitle(
-            sub_url, ep_num, cache_dir=subtitle_cache_dir
-        )
-        with open(local_vtt, "rb") as f:
-            context.bot.send_document(
-                chat_id=chat_id,
-                document=InputFile(f, filename=os.path.basename(local_vtt)),
-                caption=f"Subtitle for Episode {ep_num}"
-            )
-        os.remove(local_vtt)
-    except Exception:
-        logger.exception("Subtitle download error")
-        context.bot.send_message(chat_id, f"⚠️ Failed to download subtitle for Episode {ep_num}.")
-
-    # Delete the episode list message
+    # remove menu
     context.bot.delete_message(chat_id, original_msg_id)
 
 # —─────────────────────────────────────────────────────────────────────────────
@@ -268,70 +237,48 @@ def episodes_all_callback(update: Update, context: CallbackContext):
         pass
 
     chat_id = query.message.chat.id
-    original_msg_id = query.message.message_id
     eps = episode_cache.get(chat_id, [])
-
     if not eps:
         query.edit_message_text("❌ Nothing to download.")
         return
 
-    # Remove the episode-list menu
-    context.bot.delete_message(chat_id, original_msg_id)
+    # remove menu
+    context.bot.delete_message(chat_id, query.message.message_id)
 
-    # Ensure per-chat cache dir for subtitles
-    subtitle_cache_dir = os.path.join("subtitles_cache", str(chat_id))
-    os.makedirs(subtitle_cache_dir, exist_ok=True)
-
+    # details once
     anime_title = context.user_data.get('anime_title', 'Unknown')
-
-    # Send the details block only once, properly escaped
     header = "🔰 *Details Of Anime* 🔰"
-    details = f"🎬 *Name:* {anime_title}\n🔢 *Episode:* All"
-    full_details = f"{header}\n\n{details}"
-    safe_details = escape_markdown(full_details, version=2)
+    details = (
+        f"🎬 *Name:* {escape_markdown(anime_title, version=2)}\n"
+        "🔢 *Episode:* All"
+    )
     context.bot.send_message(
         chat_id=chat_id,
-        text=safe_details,
+        text=f"{header}\n\n{details}",
         parse_mode="MarkdownV2"
     )
 
-    # Then iterate: link + subtitle per episode
-    for ep_num, ep_id in eps:
-        # HLS link
-        try:
-            hls_link, sub_url = extract_episode_stream_and_subtitle(ep_id)
-            raw_text = f"🔗 *Episode {ep_num} HLS Link:*\n`{hls_link}`"
-            safe_text = escape_markdown(raw_text, version=2)
-            context.bot.send_message(
-                chat_id=chat_id,
-                text=safe_text,
-                parse_mode="MarkdownV2"
-            )
-        except Exception:
-            logger.exception(f"Failed to fetch HLS link for Ep {ep_num}")
-            context.bot.send_message(
-                chat_id=chat_id,
-                text=f"⚠️ Could not retrieve HLS link for Episode {ep_num}."
-            )
+    # iterate episodes
+    subtitle_cache_dir = os.path.join("subtitles_cache", str(chat_id))
+    os.makedirs(subtitle_cache_dir, exist_ok=True)
 
-        # Subtitle file
-        try:
-            local_vtt = download_and_rename_subtitle(
-                sub_url, ep_num, cache_dir=subtitle_cache_dir
-            )
-            with open(local_vtt, "rb") as f:
-                context.bot.send_document(
-                    chat_id=chat_id,
-                    document=InputFile(f, filename=os.path.basename(local_vtt)),
-                    caption=f"Subtitle for Episode {ep_num}"
-                )
-            os.remove(local_vtt)
-        except Exception:
-            logger.exception(f"Failed to download/send subtitle for Ep {ep_num}")
-            context.bot.send_message(
+    for ep_num, ep_id in eps:
+        hls_link, sub_url = extract_episode_stream_and_subtitle(ep_id)
+        safe_link = escape_markdown(hls_link, version=2)
+        context.bot.send_message(
+            chat_id=chat_id,
+            text=f"🔗 *Episode {ep_num} HLS Link:*\n`{safe_link}`",
+            parse_mode="MarkdownV2"
+        )
+
+        local_vtt = download_and_rename_subtitle(sub_url, ep_num, cache_dir=subtitle_cache_dir)
+        with open(local_vtt, "rb") as f:
+            context.bot.send_document(
                 chat_id=chat_id,
-                text=f"⚠️ Could not retrieve subtitle for Episode {ep_num}."
+                document=InputFile(f, filename=os.path.basename(local_vtt)),
+                caption=f"Subtitle for Episode {ep_num}"
             )
+        os.remove(local_vtt)
 
 # —─────────────────────────────────────────────────────────────────────────────
 # 9) Error handler
