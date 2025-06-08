@@ -168,7 +168,7 @@ def episode_callback(update: Update, context: CallbackContext):
     hls_link, sub_url = extract_episode_stream_and_subtitle(ep_id)
     context.bot.send_message(
         chat_id=chat_id,
-        text=f"🔗 *HLS Link for Episode {ep_num}:*\n`{hls_link}`",
+        text=f"🔗 *HLS Link for Episode {ep_num}:*\n\n`{hls_link}`",
         parse_mode="MarkdownV2"
     )
 
@@ -216,7 +216,7 @@ def episodes_all_callback(update: Update, context: CallbackContext):
         hls_link, sub_url = extract_episode_stream_and_subtitle(ep_id)
         context.bot.send_message(
             chat_id=chat_id,
-            text=f"🔗 *Episode {ep_num} HLS Link:*\n`{hls_link}`",
+            text=f"🔗 *Episode {ep_num} HLS Link:*\n\n`{hls_link}`",
             parse_mode="MarkdownV2"
         )
 
