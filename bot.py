@@ -31,9 +31,9 @@ from hianimez_scraper import (
 )
 from utils import download_and_rename_subtitle
 
-# ―――――――――――――――――――――――――――――――――――――――――――
+# ——————————————————————————————————————————————————————————————
 # 1) Load & validate environment
-# ―――――――――――――――――――――――――――――――――――――――――――
+# ——————————————————————————————————————————————————————————————
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 if not TELEGRAM_TOKEN:
     raise RuntimeError("TELEGRAM_TOKEN environment variable is not set")
@@ -44,9 +44,9 @@ if not ANIWATCH_API_BASE:
 
 hianimez_scraper.ANIWATCH_API_BASE = ANIWATCH_API_BASE
 
-# ―――――――――――――――――――――――――――――――――――――――――――
+# ——————————————————————————————————————————————————————————————
 # 2) Authorization decorator
-# ―――――――――――――――――――――――――――――――――――――――――――
+# ——————————————————————————————————————————————————————————————
 AUTHORIZED_USERS = {1423807625, 5476335536, 2096201372, 633599652}
 
 def restricted(func):
@@ -67,9 +67,9 @@ def restricted(func):
         return func(update, context, *args, **kwargs)
     return wrapped
 
-# ―――――――――――――――――――――――――――――――――――――――――――
+# ——————————————————————————————————————————————————————————————
 # 3) Logging, Updater & Dispatcher
-# ―――――――――――――――――――――――――――――――――――――――――――
+# ——————————————————————————————————————————————————————————————
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO,
@@ -79,15 +79,15 @@ logger = logging.getLogger(__name__)
 updater = Updater(TELEGRAM_TOKEN, use_context=True)
 dispatcher = updater.dispatcher
 
-# ―――――――――――――――――――――――――――――――――――――――――――
+# ——————————————————————————————————————————————————————————————
 # 4) In-memory caches per chat
-# ―――――――――――――――――――――――――――――――――――――――――――
+# ——————————————————————————————————————————————————————————————
 search_cache = {}    # chat_id → [ (title, slug), … ]
 episode_cache = {}   # chat_id → [ (ep_num, episode_id), … ]
 
-# ―――――――――――――――――――――――――――――――――――――――――――
+# ——————————————————————————————————————————————————————————————
 # 5) /start handler
-# ―――――――――――――――――――――――――――――――――――――――――――
+# ——————————————————————————————————————————————————————————————
 @restricted
 def start(update: Update, context: CallbackContext):
     update.message.reply_text(
@@ -107,9 +107,9 @@ def start(update: Update, context: CallbackContext):
         parse_mode="MarkdownV2"
     )
 
-# ―――――――――――――――――――――――――――――――――――――――――――
+# ——————————————————————————————————————————————————————————————
 # 6) /search handler
-# ―――――――――――――――――――――――――――――――――――――――――――
+# ——————————————————————————————————————————————————————————————
 @restricted
 def search_command(update: Update, context: CallbackContext):
     if not context.args:
@@ -139,11 +139,11 @@ def search_command(update: Update, context: CallbackContext):
         [InlineKeyboardButton(title, callback_data=f"anime_idx:{i}")]
         for i, (title, _) in enumerate(search_cache[chat_id])
     ]
-    msg.edit_message_text("Select the anime:", reply_markup=InlineKeyboardMarkup(buttons))
+    msg.edit_text("Select the anime:", reply_markup=InlineKeyboardMarkup(buttons))
 
-# ―――――――――――――――――――――――――――――――――――――――――――
+# ——————————————————————————————————————————————————————————————
 # 7) anime_idx callback
-# ―――――――――――――――――――――――――――――――――――――――――――
+# ——————————————————————————————————————————————————————————————
 @restricted
 def anime_callback(update: Update, context: CallbackContext):
     query = update.callback_query
@@ -193,7 +193,6 @@ def episode_callback(update: Update, context: CallbackContext):
     ep_num, ep_id = episode_cache[chat_id][idx]
     anime_title = context.user_data.get('anime_title', 'Unknown')
 
-    # Details block
     header = "🔰 *Details Of Anime* 🔰"
     details = (
         f"🎬 *Name:* {escape_markdown(anime_title, version=2)}\n"
@@ -201,16 +200,14 @@ def episode_callback(update: Update, context: CallbackContext):
     )
     query.message.reply_text(f"{header}\n\n{details}", parse_mode="MarkdownV2")
 
-    # HLS link
     hls_link, _ = extract_episode_stream_and_subtitle(ep_id)
     safe_link = escape_markdown(hls_link, version=2)
     context.bot.send_message(
         chat_id=chat_id,
-        text=f"🔗 *HLS Link for Episode {ep_num}:*\n\n`{safe_link}`",
+        text=f"🔗 *HLS Link for Episode {ep_num}:*\n`{safe_link}`",
         parse_mode="MarkdownV2"
     )
 
-    # Subtitle
     subtitle_cache_dir = os.path.join("subtitles_cache", str(chat_id))
     os.makedirs(subtitle_cache_dir, exist_ok=True)
     _, sub_url = extract_episode_stream_and_subtitle(ep_id)
@@ -244,7 +241,6 @@ def episodes_all_callback(update: Update, context: CallbackContext):
 
     context.bot.delete_message(chat_id, query.message.message_id)
 
-    # Details once
     anime_title = context.user_data.get('anime_title', 'Unknown')
     header = "🔰 *Details Of Anime* 🔰"
     details = (
@@ -281,7 +277,7 @@ def episodes_all_callback(update: Update, context: CallbackContext):
         safe_link = escape_markdown(hls_link, version=2)
         context.bot.send_message(
             chat_id=chat_id,
-            text=f"🔗 *Episode {ep_num} HLS Link:*\n\n`{safe_link}`",
+            text=f"🔗 *Episode {ep_num} HLS Link:*\n`{safe_link}`",
             parse_mode="MarkdownV2"
         )
 
