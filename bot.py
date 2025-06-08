@@ -12,6 +12,7 @@ from telegram import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     InputFile,
+    constants,
 )
 from telegram.utils.helpers import escape_markdown
 from telegram.error import BadRequest
@@ -82,7 +83,7 @@ updater = Updater(TELEGRAM_TOKEN, use_context=True)
 dispatcher = updater.dispatcher
 
 # ——————————————————————————————————————————————————————————————
-# 4) In‐memory caches per chat
+# 4) In-memory caches per chat
 # ——————————————————————————————————————————————————————————————
 search_cache = {}    # chat_id → [ (title, slug), … ]
 episode_cache = {}   # chat_id → [ (ep_num, episode_id), … ]
@@ -283,13 +284,15 @@ def episodes_all_callback(update: Update, context: CallbackContext):
 
     anime_title = context.user_data.get('anime_title', 'Unknown')
 
-    # Send the details block only once
+    # Send the details block only once, properly escaped
     header = "🔰 *Details Of Anime* 🔰"
     details = f"🎬 *Name:* {anime_title}\n🔢 *Episode:* All"
+    full_details = f"{header}\n\n{details}"
+    safe_details = escape_markdown(full_details, version=2)
     context.bot.send_message(
         chat_id=chat_id,
-        text=f"{header}\n\n{details}",
-        parse_mode="MarkdownV2"
+        text=safe_details,
+        parse_mode=constants.ParseMode.MARKDOWN_V2,
     )
 
     # Then iterate: link + subtitle per episode
@@ -297,10 +300,12 @@ def episodes_all_callback(update: Update, context: CallbackContext):
         # HLS link
         try:
             hls_link, sub_url = extract_episode_stream_and_subtitle(ep_id)
+            raw_text = f"🔗 *Episode {ep_num} HLS Link:*\n`{hls_link}`"
+            safe_text = escape_markdown(raw_text, version=2)
             context.bot.send_message(
                 chat_id=chat_id,
-                text=f"🔗 *Episode {ep_num} HLS Link:*\n`{hls_link}`",
-                parse_mode="MarkdownV2"
+                text=safe_text,
+                parse_mode=constants.ParseMode.MARKDOWN_V2,
             )
         except Exception:
             logger.exception(f"Failed to fetch HLS link for Ep {ep_num}")
