@@ -99,12 +99,12 @@ def start(update: Update, context: CallbackContext):
         "🎯 *What I Can Do:*\n"
         "• Search for your favorite anime on hianimez\\.to\n"
         "• Give that direct m3u8 link\n"
-        "• Include English subtitles \\(SRT/VTT\\)\n"
-        "• Send everything as a document \\(no quality loss\\)\n\n"
+        "• Include English subtitles \\ (SRT/VTT)\n"
+        "• Send everything as a document \\(no quality loss)\n\n"
         "📝 *How to Use:*\n"
         "1️⃣ `/search <anime name>` \\- Find anime titles\n"
         "2️⃣ Select the anime from the list of results\n"
-        "3️⃣ Choose an episode to get link\\(or tap \\\"Download All\\\"\\)\n"
+        "3️⃣ Choose an episode to get link\\(or tap \"Download All\"\\)\n"
         "4️⃣ Receive the high\\-quality download link \\+ subtitles automatically\n\n"
         "📩 *Contact @THe\\_vK\\_3 if any problem or Query* ",
         parse_mode="MarkdownV2"
@@ -292,7 +292,7 @@ def episodes_all_callback(update: Update, context: CallbackContext):
     context.bot.send_message(
         chat_id=chat_id,
         text=safe_details,
-        parse_mode=constants.ParseMode.MARKDOWN_V2,
+        parse_mode="MarkdownV2"
     )
 
     # Then iterate: link + subtitle per episode
@@ -305,7 +305,7 @@ def episodes_all_callback(update: Update, context: CallbackContext):
             context.bot.send_message(
                 chat_id=chat_id,
                 text=safe_text,
-                parse_mode=constants.ParseMode.MARKDOWN_V2,
+                parse_mode="MarkdownV2"
             )
         except Exception:
             logger.exception(f"Failed to fetch HLS link for Ep {ep_num}")
@@ -330,7 +330,7 @@ def episodes_all_callback(update: Update, context: CallbackContext):
             logger.exception(f"Failed to download/send subtitle for Ep {ep_num}")
             context.bot.send_message(
                 chat_id=chat_id,
-                text=f"⚠️ Could not retrieve subtitle for Episode {ep_num}."
+                text=f"⚠️ Could not retrieve subtitle for Episode {ep_num}."
             )
 
 # —─────────────────────────────────────────────────────────────────────────────
