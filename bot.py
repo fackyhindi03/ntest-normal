@@ -82,8 +82,8 @@ dispatcher = updater.dispatcher
 # ——————————————————————————————————————————————————————————————
 # 4) In-memory caches per chat
 # ——————————————————————————————————————————————————————————————
-search_cache = {}    # chat_id → [ (title, slug), … ]
-episode_cache = {}   # chat_id → [ (ep_num, episode_id), … ]
+search_cache = {}    # chat_id → [(title, slug), ...]
+episode_cache = {}   # chat_id → [(ep_num, ep_id), ...]
 
 # ——————————————————————————————————————————————————————————————
 # 5) /start handler
@@ -99,7 +99,7 @@ def start(update: Update, context: CallbackContext):
         "• Include English subtitles \\(SRT/VTT)\n"
         "• Send everything as a document \\(no quality loss)\n\n"
         "📝 *How to Use:*\n"
-        "1️⃣ `/search <anime name>` \\- Find anime titles\n"
+        "1️⃣ `/search <anime name>` \\u2010 Find anime titles\n"
         "2️⃣ Select the anime from the list of results\n"
         "3️⃣ Choose an episode to get link\\(or tap \"Download All\"\\)\n"
         "4️⃣ Receive the high\\-quality download link \\+ subtitles automatically\n\n"
@@ -204,7 +204,7 @@ def episode_callback(update: Update, context: CallbackContext):
     query.message.reply_text(f"{header}\n\n{details}", parse_mode="MarkdownV2")
 
     hls_link, _ = extract_episode_stream_and_subtitle(ep_id)
-    safe_link = escape_markdown(str(hls_link), version=2)
+    safe_link = escape_markdown(str(hls_link or ""), version=2)
     context.bot.send_message(
         chat_id=chat_id,
         text=f"🔗 *HLS Link for Episode {ep_num}:*\n`{safe_link}`",
@@ -274,7 +274,7 @@ def episodes_all_callback(update: Update, context: CallbackContext):
             )
             continue
 
-        safe_link = escape_markdown(str(hls_link), version=2)
+        safe_link = escape_markdown(str(hls_link or ""), version=2)
         context.bot.send_message(
             chat_id=chat_id,
             text=f"🔗 *Episode {ep_num} HLS Link:*\n`{safe_link}`",
@@ -297,9 +297,9 @@ def episodes_all_callback(update: Update, context: CallbackContext):
                 text=f"⚠️ Could not retrieve subtitle for Episode {ep_num}."
             )
 
-# ―─────────────────────────────────────────────────────────────────────────────
+# —─────────────────────────────────────────────────────────────────────────────
 # 9) Error handler
-# ―─────────────────────────────────────────────────────────────────────────────
+# —─────────────────────────────────────────────────────────────────────────────
 def error_handler(update: object, context: CallbackContext):
     logger.error("Update caused error", exc_info=context.error)
     if isinstance(update, Update) and update.callback_query:
