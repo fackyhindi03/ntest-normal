@@ -96,8 +96,8 @@ def start(update: Update, context: CallbackContext):
         "🎯 *What I Can Do:*\n"
         "• Search for your favorite anime on hianimez\\.to\n"
         "• Give that direct m3u8 link\n"
-        "• Include English subtitles \\(SRT/VTT\\)\n"
-        "• Send everything as a document \\(no quality loss\\)\n\n"
+        "• Include English subtitles \\(SRT/VTT)\n"
+        "• Send everything as a document \\(no quality loss)\n\n"
         "📝 *How to Use:*\n"
         "1️⃣ `/search <anime name>` \\- Find anime titles\n"
         "2️⃣ Select the anime from the list of results\n"
@@ -141,42 +141,20 @@ def search_command(update: Update, context: CallbackContext):
     ]
     msg.edit_text("Select the anime:", reply_markup=InlineKeyboardMarkup(buttons))
 
-# ——————————————————————————————————————————————————————————————
+# —─────────────────────────────────────────────────────────────────────────────
 # 7) anime_idx callback
-# ——————————————————————————————————————————————————————————————
+# —─────────────────────────────────────────────────────────────────────────────
 @restricted
 def anime_callback(update: Update, context: CallbackContext):
     query = update.callback_query
-    try:
-        query.answer()
-    except BadRequest:
-        pass
+    query.answer()
     chat_id = query.message.chat.id
 
-    # --- FIX START ---
-    # Check if the search cache exists for this chat
-    if chat_id not in search_cache:
-        query.edit_message_text(
-            "⚠️ This search result is outdated. Please start a new `/search`."
-        )
-        return
-    # --- FIX END ---
-
     idx = int(query.data.split(":", 1)[1])
-    
-    # --- FIX START ---
-    # Check if the specific index is still valid
-    if idx >= len(search_cache[chat_id]):
-        query.edit_message_text(
-            "⚠️ This button is invalid. Please start a new `/search`."
-        )
-        return
-    # --- FIX END ---
-
-    title, slug = search_cache[chat_id][idx]
+    title, slug = search_cache.get(chat_id, [(None, None)])[idx]
     context.user_data['anime_title'] = title
 
-    safe_t = escape_markdown(title, version=2)
+    safe_t = escape_markdown(title or "Unknown", version=2)
     query.edit_message_text(
         f"🔍 Fetching episodes for *{safe_t}*…", parse_mode="MarkdownV2"
     )
@@ -185,8 +163,8 @@ def anime_callback(update: Update, context: CallbackContext):
     episode_cache[chat_id] = episodes
 
     buttons = [
-        [InlineKeyboardButton(f"Episode {ep_num}", callback_data=f"episode_idx:{i}")]
-        for i, (ep_num, _) in enumerate(episodes)
+        [InlineKeyboardButton(f"Episode {num}", callback_data=f"episode_idx:{i}")]
+        for i, (num, _) in enumerate(episodes)
     ]
     buttons.append([InlineKeyboardButton("Download All", callback_data="episode_all")])
 
@@ -195,59 +173,37 @@ def anime_callback(update: Update, context: CallbackContext):
         reply_markup=InlineKeyboardMarkup(buttons)
     )
 
-# ―─────────────────────────────────────────────────────────────────────────────
+# —─────────────────────────────────────────────────────────────────────────────
 # 8a) episode_idx callback
-# ―─────────────────────────────────────────────────────────────────────────────
+# —─────────────────────────────────────────────────────────────────────────────
 @restricted
 def episode_callback(update: Update, context: CallbackContext):
     query = update.callback_query
-    try:
-        query.answer()
-    except BadRequest:
-        pass
+    query.answer()
     chat_id = query.message.chat.id
     original_msg_id = query.message.message_id
 
-    # --- FIX START ---
-    # Use .get() to safely access the cache.
-    cached_episodes = episode_cache.get(chat_id)
-    if not cached_episodes:
-        query.edit_message_text(
-            "⚠️ This episode list is outdated. Please start a new `/search`."
-        )
+    eps = episode_cache.get(chat_id)
+    if not eps:
+        query.edit_message_text("❌ No episodes found. Please /search first.")
         return
-    # --- FIX END ---
 
     idx = int(query.data.split(":", 1)[1])
-    
-    # --- FIX START ---
-    # Check if the specific index is still valid in the cached list
-    if idx >= len(cached_episodes):
-        query.edit_message_text(
-            "⚠️ This button is invalid. Please start a new `/search`."
-        )
+    try:
+        ep_num, ep_id = eps[idx]
+    except (IndexError, TypeError):
+        query.edit_message_text("❌ Invalid episode selection.")
         return
-    # --- FIX END ---
-        
-    ep_num, ep_id = cached_episodes[idx]
-    anime_title = context.user_data.get('anime_title', 'Unknown')
 
+    anime_title = context.user_data.get('anime_title', 'Unknown')
     header = "🔰 *Details Of Anime* 🔰"
     details = (
         f"🎬 *Name:* {escape_markdown(anime_title, version=2)}\n"
         f"🔢 *Episode:* {ep_num}"
     )
-    # Deleting the old message first, then sending new ones.
-    context.bot.delete_message(chat_id, original_msg_id)
-    context.bot.send_message(chat_id=chat_id, text=f"{header}\n\n{details}", parse_mode="MarkdownV2")
+    query.message.reply_text(f"{header}\n\n{details}", parse_mode="MarkdownV2")
 
-    try:
-        hls_link, sub_url = extract_episode_stream_and_subtitle(ep_id)
-    except Exception as e:
-        logger.error(f"Failed to extract stream for ep {ep_num} ({ep_id}): {e}")
-        context.bot.send_message(chat_id=chat_id, text=f"❌ Failed to get details for Episode {ep_num}.")
-        return
-
+    hls_link, _ = extract_episode_stream_and_subtitle(ep_id)
     safe_link = escape_markdown(hls_link, version=2)
     context.bot.send_message(
         chat_id=chat_id,
@@ -255,45 +211,33 @@ def episode_callback(update: Update, context: CallbackContext):
         parse_mode="MarkdownV2"
     )
 
-    if not sub_url:
-        context.bot.send_message(chat_id=chat_id, text=f"ℹ️ No subtitle found for Episode {ep_num}.")
-        return
+    subtitle_dir = os.path.join("subtitles_cache", str(chat_id))
+    os.makedirs(subtitle_dir, exist_ok=True)
+    _, sub_url = extract_episode_stream_and_subtitle(ep_id)
+    local_vtt = download_and_rename_subtitle(sub_url, ep_num, cache_dir=subtitle_dir)
+    with open(local_vtt, "rb") as f:
+        context.bot.send_document(
+            chat_id=chat_id,
+            document=InputFile(f, filename=os.path.basename(local_vtt)),
+            caption=f"Subtitle for Episode {ep_num}"
+        )
+    os.remove(local_vtt)
 
-    subtitle_cache_dir = os.path.join("subtitles_cache", str(chat_id))
-    os.makedirs(subtitle_cache_dir, exist_ok=True)
-    try:
-        local_vtt = download_and_rename_subtitle(sub_url, ep_num, cache_dir=subtitle_cache_dir)
-        with open(local_vtt, "rb") as f:
-            context.bot.send_document(
-                chat_id=chat_id,
-                document=InputFile(f, filename=os.path.basename(local_vtt)),
-                caption=f"Subtitle for Episode {ep_num}"
-            )
-        os.remove(local_vtt)
-    except Exception as e:
-        logger.error(f"Failed to send subtitle for ep {ep_num}: {e}")
-        context.bot.send_message(chat_id=chat_id, text=f"❌ Failed to download/send subtitle for Episode {ep_num}.")
+    context.bot.delete_message(chat_id, original_msg_id)
 
-# ―─────────────────────────────────────────────────────────────────────────────
+# —─────────────────────────────────────────────────────────────────────────────
 # 8b) Download All callback
-# ―─────────────────────────────────────────────────────────────────────────────
+# —─────────────────────────────────────────────────────────────────────────────
 @restricted
 def episodes_all_callback(update: Update, context: CallbackContext):
     query = update.callback_query
-    try:
-        query.answer()
-    except BadRequest:
-        pass
-
+    query.answer()
     chat_id = query.message.chat.id
-    
-    # --- FIX START ---
-    # Use .get() to safely access the cache.
-    eps = episode_cache.get(chat_id, [])
+
+    eps = episode_cache.get(chat_id)
     if not eps:
-        query.edit_message_text("⚠️ This episode list is outdated. Please start a new `/search`.")
+        query.edit_message_text("❌ Nothing to download.")
         return
-    # --- FIX END ---
 
     context.bot.delete_message(chat_id, query.message.message_id)
 
@@ -309,8 +253,8 @@ def episodes_all_callback(update: Update, context: CallbackContext):
         parse_mode="MarkdownV2"
     )
 
-    subtitle_cache_dir = os.path.join("subtitles_cache", str(chat_id))
-    os.makedirs(subtitle_cache_dir, exist_ok=True)
+    subtitle_dir = os.path.join("subtitles_cache", str(chat_id))
+    os.makedirs(subtitle_dir, exist_ok=True)
 
     for ep_num, ep_id in eps:
         try:
@@ -337,12 +281,8 @@ def episodes_all_callback(update: Update, context: CallbackContext):
             parse_mode="MarkdownV2"
         )
 
-        if not sub_url:
-            context.bot.send_message(chat_id=chat_id, text=f"ℹ️ No subtitle found for Episode {ep_num}.")
-            continue
-
         try:
-            local_vtt = download_and_rename_subtitle(sub_url, ep_num, cache_dir=subtitle_cache_dir)
+            local_vtt = download_and_rename_subtitle(sub_url, ep_num, cache_dir=subtitle_dir)
             with open(local_vtt, "rb") as f:
                 context.bot.send_document(
                     chat_id=chat_id,
@@ -357,21 +297,17 @@ def episodes_all_callback(update: Update, context: CallbackContext):
                 text=f"⚠️ Could not retrieve subtitle for Episode {ep_num}."
             )
 
-# ―─────────────────────────────────────────────────────────────────────────────
+# —─────────────────────────────────────────────────────────────────────────────
 # 9) Error handler
-# ―─────────────────────────────────────────────────────────────────────────────
+# —─────────────────────────────────────────────────────────────────────────────
 def error_handler(update: object, context: CallbackContext):
     logger.error("Update caused error", exc_info=context.error)
-    # Check if the update object is valid and has a message attribute
-    if isinstance(update, Update) and update.effective_message:
-        try:
-            update.effective_message.reply_text("⚠️ Oops, something went wrong.")
-        except Exception as e:
-            logger.error(f"Failed to send error message to user: {e}")
+    if isinstance(update, Update) and update.callback_query:
+        update.callback_query.message.reply_text("⚠️ Oops, something went wrong.")
 
-# ―─────────────────────────────────────────────────────────────────────────────
+# —─────────────────────────────────────────────────────────────────────────────
 # 10) Register handlers & start polling
-# ―─────────────────────────────────────────────────────────────────────────────
+# —─────────────────────────────────────────────────────────────────────────────
 dispatcher.add_handler(CommandHandler("start", start))
 dispatcher.add_handler(CommandHandler("search", search_command))
 dispatcher.add_handler(CallbackQueryHandler(anime_callback, pattern=r"^anime_idx:"))
