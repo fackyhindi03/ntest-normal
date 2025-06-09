@@ -54,22 +54,17 @@ def search_anime(query: str):
     return results
 
 
-def get_episodes_list(anime_url: str):
+def get_episodes_list(slug: str):
     """
-    Given a HiAnime page URL (e.g. "https://hianimez.to/watch/raven-of-the-inner-palace-18168"),
-    extract slug = "raven-of-the-inner-palace-18168", then call:
-      GET /anime/{slug}/episodes
+    Given an anime slug (e.g. "raven-of-the-inner-palace-18168"),
+    call:
+      GET {ANIWATCH_API_BASE}/anime/{slug}/episodes
 
     Returns a list of (episode_number, episodeId) tuples, for instance:
       [ ("1", "raven-of-the-inner-palace-18168?ep=1"),
         ("2", "raven-of-the-inner-palace-18168?ep=2"),
         … ]
     """
-    try:
-        slug = anime_url.rstrip("/").split("/")[-1]
-    except Exception:
-        return []
-
     ep_list_url = f"{ANIWATCH_API_BASE}/anime/{slug}/episodes"
     resp = requests.get(ep_list_url, timeout=10)
 
@@ -123,7 +118,7 @@ def extract_episode_stream_and_subtitle(episode_id: str):
 
     data = resp.json().get("data", {})
     sources = data.get("sources", [])
-    tracks  = data.get("tracks", [])
+    subtitles = data.get("subtitles", [])
 
     # Since we specifically asked for server=hd-2, the `sources` array
     # should contain only HD-2 entries (if the anime actually has an HD-2 stream).
@@ -144,16 +139,11 @@ def extract_episode_stream_and_subtitle(episode_id: str):
 
     # Next, pick out the English subtitle from `tracks`:
     subtitle_url = None
-    for t in tracks:
+    for t in subtitles:
         # Each t looks like:
-        #   {
-        #     "file": "https://…/eng-4.vtt",
-        #     "label": "English",
-        #     "kind": "captions",
-        #     "default": True/False
-        #   }
-        if t.get("label", "").lower().startswith("english"):
-            subtitle_url = t.get("file")
+        #   { "lang": "English", "url": "https://…/eng-4.vtt", … }
+        if t.get("lang","").lower().startswith("english"):
+            subtitle_url = t.get("url")
             break
 
     return hls_link, subtitle_url
