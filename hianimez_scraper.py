@@ -54,17 +54,22 @@ def search_anime(query: str):
     return results
 
 
-def get_episodes_list(slug: str):
+def get_episodes_list(anime_url: str):
     """
-    Given an anime slug (e.g. "raven-of-the-inner-palace-18168"),
-    call:
-      GET {ANIWATCH_API_BASE}/anime/{slug}/episodes
+    Given a HiAnime page URL (e.g. "https://hianimez.to/watch/raven-of-the-inner-palace-18168"),
+    extract slug = "raven-of-the-inner-palace-18168", then call:
+      GET /anime/{slug}/episodes
 
     Returns a list of (episode_number, episodeId) tuples, for instance:
       [ ("1", "raven-of-the-inner-palace-18168?ep=1"),
         ("2", "raven-of-the-inner-palace-18168?ep=2"),
         … ]
     """
+    try:
+        slug = anime_url.rstrip("/").split("/")[-1]
+    except Exception:
+        return []
+
     ep_list_url = f"{ANIWATCH_API_BASE}/anime/{slug}/episodes"
     resp = requests.get(ep_list_url, timeout=10)
 
@@ -95,66 +100,60 @@ def get_episodes_list(slug: str):
     episodes.sort(key=lambda x: int(x[0]))
     return episodes
 
-def get_episode_servers(episode_id: str):
-    """
-    Returns the list of available “sub” servers for this episode.
-    """
-    url = f"{ANIWATCH_API_BASE}/episode/servers"
-    resp = requests.get(url, params={"animeEpisodeId": episode_id}, timeout=10)
-    resp.raise_for_status()
-    return resp.json().get("data", {}).get("sub", [])
-
 
 def extract_episode_stream_and_subtitle(episode_id: str):
     """
-    1) Picks the first available 'sub' server for this episode.
-    2) Fetches /episode/sources to get the HLS link and subtitles.
-    Returns (hls_link or None, subtitle_url or None).
-    """
-    # 1) pick a working "sub" server
-    servers = get_episode_servers(episode_id)
-    if not servers:
-        logger.warning("No sub‐servers for %s", episode_id)
-        return None, None
-    server_name = servers[0]["serverName"]
+    Given an `episode_id` such as "raven-of-the-inner-palace-18168?ep=1",
+    call:
+      GET /episode/sources?animeEpisodeId={episode_id}&server=hd-2&category=sub
 
-    # 2) fetch the HLS + subtitles
+    By specifying `server="hd-2"`, we force the API to return exactly
+    the SUB‐HD2 (1080p) link (if available).
+    Returns (hls_link_or_None, subtitle_url_or_None).
+    """
     url = f"{ANIWATCH_API_BASE}/episode/sources"
-    resp = requests.get(
-        url,
-        params={
-            "animeEpisodeId": episode_id,
-            "server":         server_name,
-            "category":       "sub"
-        },
-        timeout=10
-    )
+    params = {
+        "animeEpisodeId": episode_id,
+        "server":          "hd-2",   # <<< force SUB HD-2 (1080p)
+        "category":       "sub"
+    }
+
+    resp = requests.get(url, params=params, timeout=10)
     resp.raise_for_status()
 
-    payload = resp.json()
-    logger.info("❯❯❯ /episode/sources JSON: %s", payload)
-    data      = payload.get("data", {})
-    sources   = data.get("sources", [])
-    # the API may return text tracks under either key
-    tracks    = data.get("tracks", [])
-    subtitles = data.get("subtitles", [])
+    data = resp.json().get("data", {})
+    sources = data.get("sources", [])
+    tracks  = data.get("tracks", [])
 
-    # 3) pick the first HLS link
-    hls_link = next(
-        (s.get("url") for s in sources
-         if s.get("type") == "hls" and s.get("url")),
-        None
-    )
-
-    # 4) pick the English subtitle (try both lists)
-    subtitle_url = None
-    for track in subtitles + tracks:
-        # track may have 'url' or 'file'
-        url_key = track.get("url") and "url" or "file"
-        lang    = track.get("lang") or track.get("label","")
-        if lang.lower().startswith("english") and track.get(url_key):
-            subtitle_url = track[url_key]
+    # Since we specifically asked for server=hd-2, the `sources` array
+    # should contain only HD-2 entries (if the anime actually has an HD-2 stream).
+    hls_link = None
+    for s in sources:
+        # Each s looks like:
+        #   {
+        #     "url": "https://…/master.m3u8",
+        #     "type": "hls",
+        #     "quality": "hd-2",
+        #     …
+        #   }
+        if s.get("type") == "hls" and s.get("url"):
+            hls_link = s.get("url")
             break
 
-    logger.info("Resolved %s → HLS=%s  SUB=%s", episode_id, hls_link, subtitle_url)
+    # If no `hls_link` found, we’ll return None for that part.
+
+    # Next, pick out the English subtitle from `tracks`:
+    subtitle_url = None
+    for t in tracks:
+        # Each t looks like:
+        #   {
+        #     "file": "https://…/eng-4.vtt",
+        #     "label": "English",
+        #     "kind": "captions",
+        #     "default": True/False
+        #   }
+        if t.get("label", "").lower().startswith("english"):
+            subtitle_url = t.get("file")
+            break
+
     return hls_link, subtitle_url
