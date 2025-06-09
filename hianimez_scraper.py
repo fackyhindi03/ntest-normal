@@ -95,6 +95,12 @@ def get_episodes_list(slug: str):
     episodes.sort(key=lambda x: int(x[0]))
     return episodes
 
+def get_episode_servers(episode_id: str):
+    url = f"{ANIWATCH_API_BASE}/episode/servers"
+    params = {"animeEpisodeId": episode_id}
+    resp = requests.get(url, params=params, timeout=10)
+    resp.raise_for_status()
+    return resp.json().get("data", {}).get("sub", [])
 
 def extract_episode_stream_and_subtitle(episode_id: str):
     # 1) pick a working "sub" server
