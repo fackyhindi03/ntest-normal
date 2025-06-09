@@ -127,6 +127,8 @@ def extract_episode_stream_and_subtitle(episode_id: str):
     sources  = data.get("sources", [])
     # the old code used `subtitles = data.get("subtitles", [])`
     # but the API might still be returning them under `tracks`
+    tracks    = data.get("tracks", [])
+    subtitles = data.get("subtitles", [])
     # the API may return subtitles under `subtitles` or under `tracks`
     subtitle_url = None
     for key, url_key, lang_key in (
