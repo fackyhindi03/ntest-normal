@@ -97,28 +97,23 @@ def get_episodes_list(slug: str):
 
 
 def extract_episode_stream_and_subtitle(episode_id: str):
-    """
-    Given an `episode_id` such as "raven-of-the-inner-palace-18168?ep=1",
-    call:
-      GET /episode/sources?animeEpisodeId={episode_id}&server=hd-2&category=sub
-
-    By specifying `server="hd-2"`, we force the API to return exactly
-    the SUB‐HD2 (1080p) link (if available).
-    Returns (hls_link_or_None, subtitle_url_or_None).
-    """
     url = f"{ANIWATCH_API_BASE}/episode/sources"
     params = {
         "animeEpisodeId": episode_id,
-        "server":          "hd-2",   # <<< force SUB HD-2 (1080p)
+        "server":         "hd-2",
         "category":       "sub"
     }
 
     resp = requests.get(url, params=params, timeout=10)
     resp.raise_for_status()
 
-    data = resp.json().get("data", {})
-    sources = data.get("sources", [])
-    subtitles = data.get("subtitles", [])
+    payload = resp.json()
+    logger.info("❯❯❯ /episode/sources JSON: %s", payload)
+    data     = payload.get("data", {})
+    sources  = data.get("sources", [])
+    # the old code used `subtitles = data.get("subtitles", [])`
+    # but the API might still be returning them under `tracks`
+    tracks   = data.get("tracks", [])  
 
     # Since we specifically asked for server=hd-2, the `sources` array
     # should contain only HD-2 entries (if the anime actually has an HD-2 stream).
