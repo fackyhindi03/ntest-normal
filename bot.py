@@ -154,7 +154,7 @@ def anime_callback(update: Update, context: CallbackContext):
     title, slug = search_cache.get(chat_id, [(None, None)])[idx]
     context.user_data['anime_title'] = title
 
-    safe_t = escape_markdown(title or "Unknown", version=2)
+    safe_t = escape_markdown(str(title or "Unknown"), version=2)
     query.edit_message_text(
         f"🔍 Fetching episodes for *{safe_t}*…", parse_mode="MarkdownV2"
     )
@@ -181,17 +181,17 @@ def episode_callback(update: Update, context: CallbackContext):
     query = update.callback_query
     query.answer()
     chat_id = query.message.chat.id
-    original_msg_id = query.message.message_id
+    original_id = query.message.message_id
 
     eps = episode_cache.get(chat_id)
     if not eps:
-        query.edit_message_text("❌ No episodes found. Please /search first.")
+        query.edit_message_text("❌ No episodes found. Use /search first.")
         return
 
     idx = int(query.data.split(":", 1)[1])
     try:
         ep_num, ep_id = eps[idx]
-    except (IndexError, TypeError):
+    except Exception:
         query.edit_message_text("❌ Invalid episode selection.")
         return
 
@@ -204,17 +204,17 @@ def episode_callback(update: Update, context: CallbackContext):
     query.message.reply_text(f"{header}\n\n{details}", parse_mode="MarkdownV2")
 
     hls_link, _ = extract_episode_stream_and_subtitle(ep_id)
-    safe_link = escape_markdown(hls_link, version=2)
+    safe_link = escape_markdown(str(hls_link), version=2)
     context.bot.send_message(
         chat_id=chat_id,
         text=f"🔗 *HLS Link for Episode {ep_num}:*\n`{safe_link}`",
         parse_mode="MarkdownV2"
     )
 
-    subtitle_dir = os.path.join("subtitles_cache", str(chat_id))
-    os.makedirs(subtitle_dir, exist_ok=True)
+    dir_ = os.path.join("subtitles_cache", str(chat_id))
+    os.makedirs(dir_, exist_ok=True)
     _, sub_url = extract_episode_stream_and_subtitle(ep_id)
-    local_vtt = download_and_rename_subtitle(sub_url, ep_num, cache_dir=subtitle_dir)
+    local_vtt = download_and_rename_subtitle(sub_url, ep_num, cache_dir=dir_)
     with open(local_vtt, "rb") as f:
         context.bot.send_document(
             chat_id=chat_id,
@@ -223,7 +223,7 @@ def episode_callback(update: Update, context: CallbackContext):
         )
     os.remove(local_vtt)
 
-    context.bot.delete_message(chat_id, original_msg_id)
+    context.bot.delete_message(chat_id, original_id)
 
 # —─────────────────────────────────────────────────────────────────────────────
 # 8b) Download All callback
@@ -253,8 +253,8 @@ def episodes_all_callback(update: Update, context: CallbackContext):
         parse_mode="MarkdownV2"
     )
 
-    subtitle_dir = os.path.join("subtitles_cache", str(chat_id))
-    os.makedirs(subtitle_dir, exist_ok=True)
+    dir_ = os.path.join("subtitles_cache", str(chat_id))
+    os.makedirs(dir_, exist_ok=True)
 
     for ep_num, ep_id in eps:
         try:
@@ -274,7 +274,7 @@ def episodes_all_callback(update: Update, context: CallbackContext):
             )
             continue
 
-        safe_link = escape_markdown(hls_link, version=2)
+        safe_link = escape_markdown(str(hls_link), version=2)
         context.bot.send_message(
             chat_id=chat_id,
             text=f"🔗 *Episode {ep_num} HLS Link:*\n`{safe_link}`",
@@ -282,7 +282,7 @@ def episodes_all_callback(update: Update, context: CallbackContext):
         )
 
         try:
-            local_vtt = download_and_rename_subtitle(sub_url, ep_num, cache_dir=subtitle_dir)
+            local_vtt = download_and_rename_subtitle(sub_url, ep_num, cache_dir=dir_)
             with open(local_vtt, "rb") as f:
                 context.bot.send_document(
                     chat_id=chat_id,
@@ -291,23 +291,23 @@ def episodes_all_callback(update: Update, context: CallbackContext):
                 )
             os.remove(local_vtt)
         except Exception:
-            logger.exception(f"Failed to download subtitle for Episode {ep_num}")
+            logger.exception(f"Failed subtitle download for Episode {ep_num}")
             context.bot.send_message(
                 chat_id=chat_id,
                 text=f"⚠️ Could not retrieve subtitle for Episode {ep_num}."
             )
 
-# —─────────────────────────────────────────────────────────────────────────────
+# ―─────────────────────────────────────────────────────────────────────────────
 # 9) Error handler
-# —─────────────────────────────────────────────────────────────────────────────
+# ―─────────────────────────────────────────────────────────────────────────────
 def error_handler(update: object, context: CallbackContext):
     logger.error("Update caused error", exc_info=context.error)
     if isinstance(update, Update) and update.callback_query:
         update.callback_query.message.reply_text("⚠️ Oops, something went wrong.")
 
-# —─────────────────────────────────────────────────────────────────────────────
+# ―─────────────────────────────────────────────────────────────────────────────
 # 10) Register handlers & start polling
-# —─────────────────────────────────────────────────────────────────────────────
+# ―─────────────────────────────────────────────────────────────────────────────
 dispatcher.add_handler(CommandHandler("start", start))
 dispatcher.add_handler(CommandHandler("search", search_command))
 dispatcher.add_handler(CallbackQueryHandler(anime_callback, pattern=r"^anime_idx:"))
