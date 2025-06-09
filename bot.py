@@ -139,7 +139,7 @@ def search_command(update: Update, context: CallbackContext):
         [InlineKeyboardButton(title, callback_data=f"anime_idx:{i}")]
         for i, (title, _) in enumerate(search_cache[chat_id])
     ]
-    msg.edit_message_text("Select the anime:", reply_markup=InlineKeyboardMarkup(buttons))
+    msg.edit_text("Select the anime:", reply_markup=InlineKeyboardMarkup(buttons))
 
 # ―――――――――――――――――――――――――――――――――――――――――――
 # 7) anime_idx callback
