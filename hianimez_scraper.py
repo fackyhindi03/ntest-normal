@@ -97,10 +97,18 @@ def get_episodes_list(slug: str):
 
 
 def extract_episode_stream_and_subtitle(episode_id: str):
+    # 1) pick a working "sub" server
+    subs = get_episode_servers(episode_id)
+    if not subs:
+        logger.warning("No sub‐servers for %s", episode_id)
+        return None, None
+    server_name = subs[0]["serverName"]
+
+    # 2) fetch the HLS + subtitles
     url = f"{ANIWATCH_API_BASE}/episode/sources"
     params = {
         "animeEpisodeId": episode_id,
-        "server":         "hd-2",
+        "server":         server_name,
         "category":       "sub"
     }
 
@@ -113,21 +121,17 @@ def extract_episode_stream_and_subtitle(episode_id: str):
     sources  = data.get("sources", [])
     # the old code used `subtitles = data.get("subtitles", [])`
     # but the API might still be returning them under `tracks`
-    tracks   = data.get("tracks", [])  
-
-    # Since we specifically asked for server=hd-2, the `sources` array
-    # should contain only HD-2 entries (if the anime actually has an HD-2 stream).
-    hls_link = None
-    for s in sources:
-        # Each s looks like:
-        #   {
-        #     "url": "https://…/master.m3u8",
-        #     "type": "hls",
-        #     "quality": "hd-2",
-        #     …
-        #   }
-        if s.get("type") == "hls" and s.get("url"):
-            hls_link = s.get("url")
+    # the API may return subtitles under `subtitles` or under `tracks`
+    subtitle_url = None
+    for key, url_key, lang_key in (
+        ("subtitles", "url",   "lang"),
+        ("tracks",    "file",  "label"),
+    ):
+        for track in data.get(key, []):
+            if track.get(lang_key, "").lower().startswith("english"):
+                subtitle_url = track.get(url_key)
+                break
+        if subtitle_url:
             break
 
     # If no `hls_link` found, we’ll return None for that part.
