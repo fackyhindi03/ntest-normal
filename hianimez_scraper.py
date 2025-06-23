@@ -48,7 +48,7 @@ def search_anime(query: str):
         if not slug:
             continue
 
-        anime_url = f"https://hianimez.to/watch/{slug}"
+        anime_url = f"https://hianime.pe/watch/{slug}"
         results.append((title, anime_url, slug))
 
     return results
