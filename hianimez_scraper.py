@@ -18,7 +18,7 @@ def search_anime(query: str, page: int = 1):
     Search for anime by name using hianime-API v1.
     Returns a list of tuples: (title, anime_url, animeId)
     """
-    url = f"{HIANIME_API_BASE}/search"
+    url    = f"{ANIWATCH_API_BASE}/search"
     params = {"keyword": query, "page": page}
 
     resp = requests.get(url, params=params, timeout=10)
@@ -47,7 +47,7 @@ def get_episodes_list(anime_url: str):
     Returns a list of (episode_number, episodeId) tuples.
     """
     slug = anime_url.rstrip("/").split("/")[-1]
-    url = f"{HIANIME_API_BASE}/episodes/{slug}"
+    url = f"{ANIWATCH_API_BASE}/episodes/{slug}"
     resp = requests.get(url, timeout=10)
 
     # Fallback for single-episode anime
@@ -77,7 +77,7 @@ def extract_episode_stream_and_subtitle(episode_id: str):
     Given an episode_id, fetch HLS stream link and subtitle URL from hianime-API v1.
     Returns (hls_link_or_None, subtitle_url_or_None).
     """
-    url = f"{HIANIME_API_BASE}/stream"
+    url = f"{ANIWATCH_API_BASE}/stream"
     params = {
         "id": episode_id,
         "server": "HD-2",
