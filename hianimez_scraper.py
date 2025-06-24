@@ -58,27 +58,17 @@ def get_episodes_list(anime_url: str):
     episodes_data = resp.json().get("data", [])
 
     episodes = []
-    for ep in episodes_data:
-        raw = ep.get("id", "").strip()
-        if not raw:
+    for item in episodes_data:
+        # the actual episode number:
+        ep_num = str(item.get("number", "")).strip()
+        # the string you pass straight into /stream:
+        raw_id = item.get("episodeId", "").strip()  
+        if not ep_num or not raw_id:
             continue
 
-        # Remove any leading '/watch/' or '/' prefix:
-        #   "/watch/foo-123?ep=4" → "foo-123?ep=4"
-        parsed = urlparse(raw)
-        path = parsed.path.lstrip("/")
-        if path.startswith("watch/"):
-            path = path.split("/", 1)[1]
-
-        qs = parsed.query
-        if not qs:
-            continue
-        ep_num = parse_qs(qs).get("ep", [""])[0]
-        if not ep_num:
-            continue
-
-        episode_id = f"{path}?{qs}"
-        episodes.append((ep_num, episode_id))
+        # strip any leading slash just in case:
+        ep_id = raw_id.lstrip("/")  
+        episodes.append((ep_num, ep_id))
 
     episodes.sort(key=lambda x: int(x[0]))
     return episodes
