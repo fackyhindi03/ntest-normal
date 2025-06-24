@@ -42,7 +42,7 @@ ANIWATCH_API_BASE = os.getenv("ANIWATCH_API_BASE")
 if not ANIWATCH_API_BASE:
     raise RuntimeError("ANIWATCH_API_BASE environment variable is not set")
 
-hianimez_scraper.ANIWATCH_API_BASE = ANIWATCH_API_BASE
+hianimez_scraper.HIANIME_API_BASE   = ANIWATCH_API_BASE
 
 # ——————————————————————————————————————————————————————————————
 # 2) Authorization decorator
