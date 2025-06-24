@@ -41,12 +41,8 @@ def search_anime(query: str, page: int = 1):
     return results
 
 
-def get_episodes_list(anime_url: str):
-    """
-    Given a HiAnime watch URL, fetch episode list from hianime-API v1.
-    Returns a list of (episode_number, episodeId) tuples.
-    """
-    slug = anime_url.rstrip("/").split("/")[-1]
+def get_episodes_list(slug: str):
+    # slug should be something like "wu-geng-ji-3rd-season-3136"
     url = f"{ANIWATCH_API_BASE}/episodes/{slug}"
     resp = requests.get(url, timeout=10)
 
