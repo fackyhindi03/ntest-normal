@@ -43,32 +43,37 @@ def search_anime(query: str, page: int = 1):
 
 def get_episodes_list(slug: str):
     """
-    Fetches all episodes for a given slug from hianime-API v1.
-    Returns a list of (episode_number, episode_id) tuples.
+    slug is like "wu-geng-ji-3rd-season-3136"
     """
-    url = f"{ANIWATCH_API_BASE}/anime/{slug}/episodes"
-    resp = requests.get(url, timeout=10)
+    url = f"{ANIWATCH_API_BASE}/episodes/{slug}"
+    resp = requests.get(url, timeout=30)
 
-    # If there is no list (one-shot), fall back to a single episode.
+    # one-shot fallback
     if resp.status_code == 404:
-        return [("1", f"{slug}?ep=1")]
+        return [("1", f"/watch/{slug}?ep=1")]
 
     resp.raise_for_status()
-    json_body = resp.json()
+    raw = resp.json()
 
-    # Drill into data.episodes
-    episodes_data = json_body.get("data", {}).get("episodes", [])
+    # drill into the array under data
+    episodes_data = raw.get("data", [])
 
     episodes = []
     for ep in episodes_data:
-        ep_num = str(ep.get("number", "")).strip()
-        # episodeId comes as "slug?ep=N"
-        raw_id = ep.get("episodeId", "").lstrip("/")
-        if not ep_num or not raw_id:
+        raw_id = ep.get("id", "").strip()               # e.g. "/watch/slug?ep=4"
+        if not raw_id:
             continue
-        episodes.append((ep_num, raw_id))
 
-    # Sort numerically just in case
+        # extract the episode number from the query string
+        qs = urlparse(raw_id).query                     # "ep=4"
+        ep_nums = parse_qs(qs).get("ep", [])
+        if not ep_nums:
+            continue
+        ep_num = ep_nums[0]                             # "4"
+
+        episodes.append((ep_num, raw_id))               # keep the leading slash
+
+    # sort by numeric episode
     episodes.sort(key=lambda x: int(x[0]))
     return episodes
 
