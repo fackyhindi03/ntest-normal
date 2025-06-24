@@ -45,7 +45,7 @@ def get_episodes_list(slug: str):
     """
     slug is like "wu-geng-ji-3rd-season-3136"
     """
-    url = f"{ANIWATCH_API_BASE}/episodes/{slug}"
+    url = f"{ANIWATCH_API_BASE}/anime/{slug}/episodes"
     resp = requests.get(url, timeout=30)
 
     # one-shot fallback
@@ -90,7 +90,7 @@ def extract_episode_stream_and_subtitle(episode_id: str):
 
     params = {
         "animeEpisodeId": clean_id,
-        "server":         "hd-2",
+        "server":         "HD-2",
         "category":       "sub"
     }
 
