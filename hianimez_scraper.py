@@ -56,22 +56,15 @@ def get_episodes_list(slug: str):
     raw = resp.json()
 
     # drill into the array under data
-    episodes_data = raw.get("data", [])
+    episodes_data = raw.get("data", {}).get("episodes", [])
 
     episodes = []
     for ep in episodes_data:
-        raw_id = ep.get("id", "").strip()               # e.g. "/watch/slug?ep=4"
-        if not raw_id:
+        ep_num = str(ep.get("number", "")).strip()
+        raw_id = ep.get("id", "").strip()               # "/watch/slug?ep=N"
+        if not ep_num or not raw_id:
             continue
-
-        # extract the episode number from the query string
-        qs = urlparse(raw_id).query                     # "ep=4"
-        ep_nums = parse_qs(qs).get("ep", [])
-        if not ep_nums:
-            continue
-        ep_num = ep_nums[0]                             # "4"
-
-        episodes.append((ep_num, raw_id))               # keep the leading slash
+        episodes.append((ep_num, raw_id))        # keep the leading slash
 
     # sort by numeric episode
     episodes.sort(key=lambda x: int(x[0]))
