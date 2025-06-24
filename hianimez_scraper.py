@@ -8,7 +8,7 @@ from urllib.parse import urlparse, parse_qs
 logger = logging.getLogger(__name__)
 
 # Base URL for hianime-API v1 service
-HIANIME_API_BASE = os.getenv(
+ANIWATCH_API_BASE = os.getenv(
     "ANIWATCH_API_BASE",
     "http://localhost:3030/api/v1"
 )
