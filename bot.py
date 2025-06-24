@@ -201,6 +201,12 @@ def episode_callback(update: Update, context: CallbackContext):
     query.message.reply_text(f"{header}\n\n{details}", parse_mode="MarkdownV2")
 
     hls_link, _ = extract_episode_stream_and_subtitle(ep_id)
+    if not hls_link:
+        # no HLS returned → inform user, and abort
+        return context.bot.send_message(
+            chat_id=chat_id,
+            text=f"⚠️ Could not retrieve stream for Episode {ep_num}."
+        )
     safe_link = escape_markdown(hls_link, version=2)
     context.bot.send_message(
         chat_id=chat_id,
