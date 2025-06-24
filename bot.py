@@ -163,7 +163,7 @@ def anime_callback(update: Update, context: CallbackContext):
     )
 
     anime_url = f"https://hianime.bz/watch/{slug}"
-    episodes  = get_episodes_list(anime_url))
+    episodes  = get_episodes_list(anime_url)
     episode_cache[chat_id] = episodes
 
     buttons = [
