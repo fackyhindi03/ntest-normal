@@ -78,20 +78,13 @@ def get_episodes_list(slug: str):
     return episodes
 
 def extract_episode_stream_and_subtitle(episode_id: str):
-    """
-    Given an episode_id like "slug-123?ep=4", fetch the HLS link and English subtitle.
-    """
-    # Build the correct endpoint
-    url = f"{ANIWATCH_API_BASE}/episode/sources"
-    # strip any leading "/" and the "watch/" prefix if present:
-    clean_id = episode_id.lstrip("/")            # "watch/slug?ep=N" or "slug?ep=N"
-    if clean_id.startswith("watch/"):
-        clean_id = clean_id.split("/", 1)[1]     # "slug?ep=N"
-
+    # Call the official streaming‐links endpoint
+    url = f"{ANIWATCH_API_BASE}/stream"
+    # episode_id must be the full "/watch/...?..."; don't strip anything
     params = {
-        "animeEpisodeId": clean_id,
-        "server":         "HD-2",
-        "category":       "sub"
+        "id":     episode_id,
+        "server": "HD-2",    # MUST be uppercase per API
+        "type":   "sub"
     }
 
     resp = requests.get(url, params=params, timeout=30)
