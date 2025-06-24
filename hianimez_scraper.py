@@ -42,8 +42,9 @@ def search_anime(query: str, page: int = 1):
 
 
 def get_episodes_list(slug: str):
-    # slug should be something like "wu-geng-ji-3rd-season-3136"
-    url = f"{ANIWATCH_API_BASE}/episodes/{slug}"
+    # slug: "wu-geng-ji-3rd-season-3136"
+    # v1 episodes endpoint is under /anime/:slug/episodes
+    url = f"{ANIWATCH_API_BASE}/anime/{slug}/episodes"
     resp = requests.get(url, timeout=10)
 
     # Fallback for single-episode anime
@@ -51,20 +52,17 @@ def get_episodes_list(slug: str):
         return [("1", f"{slug}?ep=1")]
 
     resp.raise_for_status()
-    episodes_data = resp.json().get("data", [])
+    # drill into the `episodes` array
+    raw = resp.json()
+    episodes_data = raw.get("data", {}).get("episodes", [])
 
     episodes = []
-    for item in episodes_data:
-        # the actual episode number:
-        ep_num = str(item.get("number", "")).strip()
-        # the string you pass straight into /stream:
-        raw_id = item.get("episodeId", "").strip()  
+    for ep in episodes_data:
+        ep_num = str(ep.get("number", "")).strip()
+        raw_id = ep.get("episodeId", "").lstrip("/")  # "slug?ep=4"
         if not ep_num or not raw_id:
             continue
-
-        # strip any leading slash just in case:
-        ep_id = raw_id.lstrip("/")  
-        episodes.append((ep_num, ep_id))
+        episodes.append((ep_num, raw_id))
 
     episodes.sort(key=lambda x: int(x[0]))
     return episodes
