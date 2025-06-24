@@ -42,31 +42,35 @@ def search_anime(query: str, page: int = 1):
 
 
 def get_episodes_list(slug: str):
-    # slug: "wu-geng-ji-3rd-season-3136"
-    # v1 episodes endpoint is under /anime/:slug/episodes
+    """
+    Fetches all episodes for a given slug from hianime-API v1.
+    Returns a list of (episode_number, episode_id) tuples.
+    """
     url = f"{ANIWATCH_API_BASE}/anime/{slug}/episodes"
     resp = requests.get(url, timeout=10)
 
-    # Fallback for single-episode anime
+    # If there is no list (one-shot), fall back to a single episode.
     if resp.status_code == 404:
         return [("1", f"{slug}?ep=1")]
 
     resp.raise_for_status()
-    # drill into the `episodes` array
-    raw = resp.json()
-    episodes_data = raw.get("data", {}).get("episodes", [])
+    json_body = resp.json()
+
+    # Drill into data.episodes
+    episodes_data = json_body.get("data", {}).get("episodes", [])
 
     episodes = []
     for ep in episodes_data:
         ep_num = str(ep.get("number", "")).strip()
-        raw_id = ep.get("episodeId", "").lstrip("/")  # "slug?ep=4"
+        # episodeId comes as "slug?ep=N"
+        raw_id = ep.get("episodeId", "").lstrip("/")
         if not ep_num or not raw_id:
             continue
         episodes.append((ep_num, raw_id))
 
+    # Sort numerically just in case
     episodes.sort(key=lambda x: int(x[0]))
     return episodes
-
 
 def extract_episode_stream_and_subtitle(episode_id: str):
     """
