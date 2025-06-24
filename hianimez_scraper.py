@@ -79,35 +79,36 @@ def get_episodes_list(slug: str):
 
 def extract_episode_stream_and_subtitle(episode_id: str):
     """
-    Given an episode_id, fetch HLS stream link and subtitle URL from hianime-API v1.
-    Returns (hls_link_or_None, subtitle_url_or_None).
+    Given an episode_id like "slug-123?ep=4", fetch the HLS link and English subtitle.
     """
-    url = f"{ANIWATCH_API_BASE}/stream"
-    # clean up the id: remove any leading "/watch/" or "/" prefix
-    clean = episode_id.lstrip("/")            # "watch/foo-123?ep=4" or "foo-123?ep=4"
-    if clean.startswith("watch/"):
-        clean = clean.split("/", 1)[1]        # "foo-123?ep=4"
-
+    # Build the correct endpoint
+    url = f"{ANIWATCH_API_BASE}/episode/sources"
     params = {
-        "id":     clean,
-        "server": "HD-2",
-        "type": "sub"
+        "animeEpisodeId": episode_id,
+        "server":         "hd-2",   # HD-2 quality
+        "category":       "sub"     # Subtitle category
     }
 
-    resp = requests.get(url, params=params, timeout=10)
+    resp = requests.get(url, params=params, timeout=30)
     resp.raise_for_status()
 
-    data = resp.json().get("data", {})
-    stream = data.get("streamingLink", {})
+    data    = resp.json().get("data", {})
+    sources = data.get("sources", [])
+    tracks  = data.get("tracks", [])
 
-    # HLS playlist URL
-    hls_link = stream.get("link", {}).get("file")
+    # Pick out the HLS link
+    hls_link = None
+    for s in sources:
+        if s.get("type") == "hls" and s.get("url"):
+            hls_link = s["url"]
+            break
 
-    # English subtitle (if available)
+    # Pick out the English subtitle
     subtitle_url = None
-    for track in stream.get("tracks", []):
-        if track.get("kind") == "captions" or track.get("label", "").lower().startswith("english"):
-            subtitle_url = track.get("file")
+    for t in tracks:
+        label = t.get("label", "").lower()
+        if t.get("kind") == "captions" or label.startswith("eng"):
+            subtitle_url = t.get("file")
             break
 
     return hls_link, subtitle_url
