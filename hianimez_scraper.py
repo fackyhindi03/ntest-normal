@@ -83,10 +83,15 @@ def extract_episode_stream_and_subtitle(episode_id: str):
     """
     # Build the correct endpoint
     url = f"{ANIWATCH_API_BASE}/episode/sources"
+    # strip any leading "/" and the "watch/" prefix if present:
+    clean_id = episode_id.lstrip("/")            # "watch/slug?ep=N" or "slug?ep=N"
+    if clean_id.startswith("watch/"):
+        clean_id = clean_id.split("/", 1)[1]     # "slug?ep=N"
+
     params = {
-        "animeEpisodeId": episode_id,
-        "server":         "hd-2",   # HD-2 quality
-        "category":       "sub"     # Subtitle category
+        "animeEpisodeId": clean_id,
+        "server":         "hd-2",
+        "category":       "sub"
     }
 
     resp = requests.get(url, params=params, timeout=30)
