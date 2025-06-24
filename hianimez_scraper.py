@@ -21,7 +21,7 @@ def search_anime(query: str, page: int = 1):
     url    = f"{ANIWATCH_API_BASE}/search"
     params = {"keyword": query, "page": page}
 
-    resp = requests.get(url, params=params, timeout=10)
+    resp = requests.get(url, params=params, timeout=30)
     resp.raise_for_status()
 
     js = resp.json()
