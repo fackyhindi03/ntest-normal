@@ -45,7 +45,9 @@ def get_episodes_list(slug: str):
     """
     slug is like "wu-geng-ji-3rd-season-3136"
     """
-    url = f"{ANIWATCH_API_BASE}/anime/{slug}/episodes"
+    # ⚠️ Use the v1 episodes endpoint exactly as documented:
+    #    GET /api/v1/episodes/{animeId}
+    url = f"{ANIWATCH_API_BASE}/episodes/{slug}"
     resp = requests.get(url, timeout=30)
 
     # one-shot fallback
@@ -53,50 +55,54 @@ def get_episodes_list(slug: str):
         return [("1", f"/watch/{slug}?ep=1")]
 
     resp.raise_for_status()
-    raw = resp.json()
 
-    # drill into the array under data
-    episodes_data = raw.get("data", {}).get("episodes", [])
+    # response.json()["data"] is already a list of episode objects
+    eps = resp.json().get("data", [])
 
     episodes = []
-    for ep in episodes_data:
-        ep_num = str(ep.get("number", "")).strip()
-        raw_id = ep.get("id", "").strip()               # "/watch/slug?ep=N"
-        if not ep_num or not raw_id:
+    for ep in eps:
+        raw_id = ep.get("id", "").strip()               # e.g. "/watch/slug?ep=4"
+        if not raw_id:
             continue
-        episodes.append((ep_num, raw_id))        # keep the leading slash
 
-    # sort by numeric episode
+        # parse out the "ep=4" -> "4"
+        qs      = urlparse(raw_id).query                # "ep=4"
+        ep_nums = parse_qs(qs).get("ep", [])
+        if not ep_nums:
+            continue
+        ep_num = ep_nums[0]
+
+        episodes.append((ep_num, raw_id))
+
+    # sort numerically
     episodes.sort(key=lambda x: int(x[0]))
     return episodes
-
+    
 def extract_episode_stream_and_subtitle(episode_id: str):
-    # Call the official streaming‐links endpoint
+    """
+    episode_id must be the full "/watch/<slug>?ep=<n>" as returned by get_episodes_list.
+    """
+    # ⚠️ Use the documented stream endpoint:
+    #    GET /api/v1/stream?id={id}&server=HD-2&type=sub
     url = f"{ANIWATCH_API_BASE}/stream"
-    # episode_id must be the full "/watch/...?..."; don't strip anything
     params = {
-        "id":     episode_id,
-        "server": "HD-2",    # MUST be uppercase per API
+        "id":     episode_id,   # keep the leading slash
+        "server": "HD-2",       # MUST be uppercase
         "type":   "sub"
     }
 
     resp = requests.get(url, params=params, timeout=30)
     resp.raise_for_status()
 
-    data    = resp.json().get("data", {})
-    sources = data.get("sources", [])
-    tracks  = data.get("tracks", [])
+    data   = resp.json().get("data", {})
+    stream = data.get("streamingLink", {})
 
-    # Pick out the HLS link
-    hls_link = None
-    for s in sources:
-        if s.get("type") == "hls" and s.get("url"):
-            hls_link = s["url"]
-            break
+    # pick the HLS link
+    hls_link = stream.get("link", {}).get("file")
 
-    # Pick out the English subtitle
+    # pick the English subtitles (if any)
     subtitle_url = None
-    for t in tracks:
+    for t in stream.get("tracks", []):
         label = t.get("label", "").lower()
         if t.get("kind") == "captions" or label.startswith("eng"):
             subtitle_url = t.get("file")
