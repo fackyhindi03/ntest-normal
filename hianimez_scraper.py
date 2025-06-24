@@ -83,8 +83,13 @@ def extract_episode_stream_and_subtitle(episode_id: str):
     Returns (hls_link_or_None, subtitle_url_or_None).
     """
     url = f"{ANIWATCH_API_BASE}/stream"
+    # clean up the id: remove any leading "/watch/" or "/" prefix
+    clean = episode_id.lstrip("/")            # "watch/foo-123?ep=4" or "foo-123?ep=4"
+    if clean.startswith("watch/"):
+        clean = clean.split("/", 1)[1]        # "foo-123?ep=4"
+
     params = {
-        "id": episode_id,
+        "id":     clean,
         "server": "HD-2",
         "type": "sub"
     }
