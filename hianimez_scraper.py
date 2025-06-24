@@ -59,14 +59,26 @@ def get_episodes_list(anime_url: str):
 
     episodes = []
     for ep in episodes_data:
-        ep_id = ep.get("id", "").strip()
-        if not ep_id:
+        raw = ep.get("id", "").strip()
+        if not raw:
             continue
-        qs = urlparse(ep_id).query
+
+        # Remove any leading '/watch/' or '/' prefix:
+        #   "/watch/foo-123?ep=4" → "foo-123?ep=4"
+        parsed = urlparse(raw)
+        path = parsed.path.lstrip("/")
+        if path.startswith("watch/"):
+            path = path.split("/", 1)[1]
+
+        qs = parsed.query
+        if not qs:
+            continue
         ep_num = parse_qs(qs).get("ep", [""])[0]
         if not ep_num:
             continue
-        episodes.append((ep_num, ep_id))
+
+        episode_id = f"{path}?{qs}"
+        episodes.append((ep_num, episode_id))
 
     episodes.sort(key=lambda x: int(x[0]))
     return episodes
